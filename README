@@ -1,5 +1,37 @@
 Hammer your site as fast as computerly possible (pretty much).
 
-Take a look at some of the files in requests/ for examples.
+--------------------------------------------------------------------------------
 
-TODO: add some examples to requests/
+# to get things started
+make loadtest
+
+# take a look at requests/example
+# basically anything you can pipe to netcat and get a response with will do
+# see scripts in requests.easy/ for an easy way to generate a multipart POST request
+
+cat requests/example | nc www.google.com 80
+# confirm output is what you should be seeing
+
+./loadtest -h www.google.com -p 80 -c 1 -r 10 -i requests/example 
+
+# sample output:
+#running with 1 user, each doing 10 sessions, targeting www.google.com port 80...
+#Totals:
+#===================
+#Sessions:               10        
+#                        12.37      sessions per second
+#                        10.00      sessions per thread
+#                        12.37      sessions per thread per second
+#
+#Total Time:             0.81       seconds
+#                        0.81       average seconds per thread
+#
+#Data (down):            0.32       MiB
+#                        402.18     average KiBps
+#                        402.18     average KiBps per thread
+#
+#Data (up):              0.00       MiB
+#                        0.00       average KiBps
+#                        0.00       average KiBps per thread
+#
+#Number of Timeouts:     0         
