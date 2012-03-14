@@ -6,6 +6,7 @@ tcp.test
 utils.test
 test.test
 *.o
-requests/*
+requests/localhost_*
+requests/pulitzer_*
 requests.easy/*.easy
 *.vim
