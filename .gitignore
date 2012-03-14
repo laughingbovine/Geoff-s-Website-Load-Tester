@@ -1,2 +1,9 @@
-*.o
+.svn
 loadtest
+tcp.test
+utils.test
+test.test
+*.o
+requests/*
+requests.easy/*.easy
+*.vim
