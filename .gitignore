@@ -1,4 +1,6 @@
+.git
 .svn
+.gitignore
 loadtest
 tcp.test
 utils.test
