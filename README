@@ -5,6 +5,14 @@ Hammer your site as fast as computerly possible (pretty much).
 # to get things started
 make loadtest
 
+./loadtest 
+#usage:
+#loadtest -h host_name -p port_number
+#        [-c num_concurrent_users]
+#        [-r num_sessions]
+#        [-t run_time_seconds]
+#        [-i input_file1 -i input_file2 -i input_file3 ...]
+
 # take a look at requests/example
 # basically anything you can pipe to netcat and get a response with will do
 # see scripts in requests.easy/ for an easy way to generate a multipart POST
