@@ -7,11 +7,16 @@ make loadtest
 
 # take a look at requests/example
 # basically anything you can pipe to netcat and get a response with will do
-# see scripts in requests.easy/ for an easy way to generate a multipart POST request
+# see scripts in requests.easy/ for an easy way to generate a multipart POST
+# request
+# TODO: need to put an example for an 'easy' request, but who to target?
 
 cat requests/example | nc www.google.com 80
 # confirm output is what you should be seeing
 
+# and run!
+# you can use '-t' instead of '-r' to set a time limit
+# (instead of a repeat limit)
 ./loadtest -h www.google.com -p 80 -c 1 -r 10 -i requests/example 
 
 # sample output:
@@ -35,3 +40,6 @@ cat requests/example | nc www.google.com 80
 #                        0.00       average KiBps per thread
 #
 #Number of Timeouts:     0         
+
+# Try it on your own host with hundreds of users over long periods of time.
+# Runs better than siege.  More flexibility (and configuration) than ab.
