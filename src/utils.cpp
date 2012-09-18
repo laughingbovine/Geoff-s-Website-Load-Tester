@@ -2,14 +2,40 @@
 
 ////////////////////////////////////////////////////////////////////////////////
 
-void error (const char *fmt, ...)
+void warn (const char *fmt, ...)
 {
+    int retval;
+    char* str;
+
     va_list ap;
     va_start(ap, fmt);
-    vfprintf(stderr, fmt, ap);
+    retval = vasprintf(&str, fmt, ap);
     va_end(ap);
 
-    fprintf(stderr, "\n");
+    if (retval > 0)
+    {
+        fprintf(stderr, "%s\n", str);
+
+        free(str);
+    }
+}
+
+void error (const char *fmt, ...)
+{
+    int retval;
+    char* str;
+
+    va_list ap;
+    va_start(ap, fmt);
+    retval = vasprintf(&str, fmt, ap);
+    va_end(ap);
+
+    if (retval > 0)
+    {
+        fprintf(stderr, "%s\n", str);
+
+        free(str);
+    }
 
     exit(1);
 }

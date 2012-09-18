@@ -8,7 +8,7 @@
 #include <sys/socket.h>
 #include <netdb.h>
 
-#define TCP_CONNECTION_TIMEOUT_SEC 3
+#define TCP_CONNECTION_TIMEOUT_SEC 30
 #define TCP_CONNECTION_TIMEOUT_USEC 0
 
 class TcpConnection
@@ -24,38 +24,41 @@ class TcpConnection
     ////////////////////////////////////////////////////////////////////////////////
 
     private:
-    static int _open_tcp_socket (const char *host_name, const int port_number);
+    static int _open_tcp_socket (const char*, const int);
 
     bool _is_read_ready ();
 
+    int _get (char*, const int, const int);
+    int _get_until (char*, const int, const char, const int);
+
     public:
     TcpConnection ();
-    void connect (const char *host_name, const int port_number);
+    int connect (const char*, const int);
     void disconnect ();
     void shutdown_writes ();
     void shutdown_reads ();
 
-    int write (const char *message, const int message_length);
-    int write (CharBuffer &b);
-    int swrite (const char *message);
-    int swrite (string &message);
+    int write (const char*, const int);
+    int write (CharBuffer&);
+    int swrite (const char*);
+    int swrite (string&);
 
     bool check_timeout ();
 
-    int read (char *buffer, const int buffer_size);
-    int read (CharBuffer &b);
+    int read (char*, const int);
+    int read (CharBuffer&);
     int read ();
 
-    int sread (char *buffer, const int buffer_size);
-    int sread (CharBuffer &b);
+    int sread (char*, const int);
+    int sread (CharBuffer&);
     int sread ();
 
-    int readline (char *buffer, const int buffer_size);
-    int readline (CharBuffer &b);
+    int readline (char*, const int);
+    int readline (CharBuffer&);
     int readline ();
 
-    int read_all (unsigned long* num_bytes = NULL);
-    int print_all (unsigned long* num_bytes = NULL);
+    int read_all (unsigned long*);
+    int print_all (unsigned long*);
 
     const char* last_read ();
 };

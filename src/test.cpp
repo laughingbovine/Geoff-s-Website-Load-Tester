@@ -29,12 +29,13 @@ void* LoadTest::Test::_run (void* test_input)
     TcpConnection conn;
     //struct timeval* clock;
     Stopwatch clock;
-    int i;
+    //int timeout_counter;
 
     // initialize variables
     tr->num_bytes_read = 0;
     tr->num_bytes_written = 0;
     tr->num_timeouts = 0;
+    tr->num_giveups = 0;
     tr->num_sessions = 0;
     tr->time = 0.0;
 
@@ -43,27 +44,46 @@ void* LoadTest::Test::_run (void* test_input)
 
     while (1)
     {
+        //timeout_counter = 0;
+
         // establish connection
         //connect_tcp(conn, ti->host_name, ti->port_number);
-        conn.connect(ti->host_name, ti->port_number);
+        if (conn.connect(ti->host_name, ti->port_number) == 0)
+        {
+            //cout << "=====SENDING=====" << endl << *ti->input << endl;
 
-        //cout << "=====SENDING=====" << endl << *ti->input << endl;
+            // send out the requests
+            //swrite_tcp(conn, ti->input);
+            tr->num_bytes_written += conn.write(*ti->input);
+            conn.shutdown_writes();
 
-        // send out the requests
-        //swrite_tcp(conn, ti->input);
-        tr->num_bytes_written += conn.write(*ti->input);
-        conn.shutdown_writes();
+            //cout << "=====RECIEVING=====" << endl;
 
-        //cout << "=====RECIEVING=====" << endl;
+            // read the responses and check for a timeout, tolerate some number of timeouts
+            while (true)
+            {
+                if (conn.read_all(&tr->num_bytes_read) == -1)
+                {
+                    tr->num_timeouts++;
+                    //timeout_counter++;
 
-        // read the responses and check for a timeout
-        //if (conn.print_all(&tr->num_bytes_read) == -1)
-        if (conn.read_all(&tr->num_bytes_read) == -1)
-            tr->num_timeouts++;
+                    //if (timeout_counter >= LOADTEST_NUM_TIMEOUTS_TO_TOLERATE)
+                    //{
+                    //    tr->num_giveups++;
+                    //    warn("LoadTest::_run() too many timeouts/errors, giving up on this test");
+                    //    break;
+                    //}
+                }
+                else
+                {
+                    break;
+                }
+            }
 
-        // cleanup
-        //disconnect_tcp(conn);
-        conn.disconnect();
+            // cleanup
+            //disconnect_tcp(conn);
+            conn.disconnect();
+        }
 
         // update stats
         tr->num_sessions++;

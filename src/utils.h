@@ -7,6 +7,7 @@
 
 using namespace std;
 
+void warn (const char *fmt, ...);
 void error (const char *fmt, ...);
 
 class Stopwatch

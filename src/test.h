@@ -5,6 +5,8 @@
 #include "utils.h"
 #include <pthread.h>
 
+#define LOADTEST_NUM_TIMEOUTS_TO_TOLERATE 3
+
 namespace LoadTest
 {
     struct Input
@@ -24,6 +26,7 @@ namespace LoadTest
         unsigned long num_bytes_read;
         unsigned long num_bytes_written;
         unsigned int num_timeouts;
+        unsigned int num_giveups;
         unsigned int num_sessions;
     };
 

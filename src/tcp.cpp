@@ -14,12 +14,18 @@ int TcpConnection::_open_tcp_socket (const char *host_name, const int port_numbe
     // SOCK_STREAM basically means "use TCP" (with SOCK_DGRAM for "use UDP")
     // 0 is for protocol, but should always be 0 which means it will choose the "most appropriate" protocol (TCP for STREAMs and UDP for DataGRAMs)
     if (new_socket_id < 0) // error check creation of socket
-        error("_open_tcp_socket(): ERROR opening socket");
+    {
+        warn("TcpConnection::_open_tcp_socket(): ERROR opening socket");
+        return -1;
+    }
 
     // process host name input
     host = ::gethostbyname(host_name);
     if (host == NULL)
-        error("_open_tcp_socket(): ERROR, no such host");
+    {
+        warn("TcpConnection::_open_tcp_socket(): ERROR, no such host");
+        return -1;
+    }
 
     // initialize the server address object
     bzero((char*)&server, sizeof(server));                                      // zero the server address object
@@ -30,7 +36,10 @@ int TcpConnection::_open_tcp_socket (const char *host_name, const int port_numbe
     // open connection
     connect_result = ::connect(new_socket_id, (struct sockaddr*)&server, sizeof(server));
     if (connect_result < 0)
-        error("_open_tcp_socket(): ERROR connecting");
+    {
+        warn("TcpConnection::_open_tcp_socket(): ERROR connecting");
+        return -1;
+    }
 
     return new_socket_id;
 }
@@ -46,19 +55,27 @@ TcpConnection::TcpConnection ()
     wait_timeout.tv_usec    = TCP_CONNECTION_TIMEOUT_USEC;
 }
 
-void TcpConnection::connect (const char *host_name, const int port_number)
+int TcpConnection::connect (const char *host_name, const int port_number)
 {
     if (connected)
-        error("socket already connected");
+        error("TcpConnection::connect() socket already connected");
 
     // store socket id
     socket_id = _open_tcp_socket(host_name, port_number);
+
+    if (socket_id < 0)
+    {
+        warn("TcpConnection::connect() error getting socket");
+        return -1;
+    }
 
     // initialize socket "set"
     FD_ZERO(&socket_set);
     FD_SET(socket_id, &socket_set);
 
     connected = true;
+
+    return 0;
 }
 
 void TcpConnection::shutdown_writes ()
@@ -122,11 +139,19 @@ bool TcpConnection::_is_read_ready ()
     result = ::select(FD_SETSIZE, &socket_set, NULL, NULL, &wait_timeout);
 
     if (result < 0)
-        error("TcpConnection::_is_read_ready(): ERROR select()ing socket");
+    {
+        warn("TcpConnection::_is_read_ready(): ERROR select()ing socket");
+        timeout = true;
+    }
     else if (result == 0)
+    {
+        warn("TcpConnection::_is_read_ready(): select() timeout");
         timeout = true; // timeout
+    }
     else
+    {
         timeout = false; // good to go
+    }
 
     return !timeout;
 }
@@ -138,11 +163,7 @@ bool TcpConnection::check_timeout ()
 
 ////////////////////////////////////////////////////////////////////////////////
 
-/* read as much as possible
- * into the provided buffer
- */
-
-int TcpConnection::read (char *buffer, const int buffer_size)
+int TcpConnection::_get (char *buffer, const int buffer_size, const int mode)
 {
     int num_bytes; // number of bytes read
 
@@ -150,12 +171,68 @@ int TcpConnection::read (char *buffer, const int buffer_size)
         return -1;
 
     // grab input from socket
-    num_bytes = ::recv(socket_id, buffer, buffer_size, 0);
+    num_bytes = ::recv(socket_id, buffer, buffer_size, mode);
 
     if (num_bytes < 0) // error check read from socket
-        error("TcpConnection::read(): ERROR reading from socket");
+    {
+        warn("TcpConnection::_get(): ERROR reading from socket");
+        return -1;
+    }
 
     return num_bytes;
+}
+
+int TcpConnection::_get_until (char *buffer, const int buffer_size, const char until, const int mode)
+{
+    int num_bytes;              // number of bytes read
+    char* until_char_location;  // location of the "until" character
+    int str_length;             // length of line to be read
+
+    if (!_is_read_ready())
+        return -1;
+
+    // first, take a peek so we can find the "until" character
+    // -1 so we can null-terminate the string (see below)
+    num_bytes = ::recv(socket_id, buffer, buffer_size - 1, MSG_PEEK);
+
+    if (num_bytes < 0)
+    {
+        warn("TcpConnection::_get_until(): ERROR reading from socket");
+        return -1;
+    }
+
+    *(buffer+num_bytes) = '\0'; // null-terminate that string for strchr()
+
+    until_char_location = strchr(buffer, until); // search for the "until" character
+
+    if (until_char_location == NULL)
+        return 0; // not found, buffer might not be big enough
+
+    str_length = until_char_location - buffer;
+
+    // +1 to eat the "until" character as well
+    num_bytes = ::recv(socket_id, buffer, str_length + 1, mode);
+
+    if (num_bytes < 0)
+    {
+        warn("TcpConnection::_get_until(): ERROR reading from socket");
+        return -1;
+    }
+
+    *(buffer+num_bytes) = '\0'; // null-terminate that string, yo
+
+    return num_bytes;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+/* read as much as possible
+ * into the provided buffer
+ */
+
+int TcpConnection::read (char *buffer, const int buffer_size)
+{
+    return _get(buffer, buffer_size, 0);
 }
 
 int TcpConnection::read (CharBuffer &b)
@@ -176,37 +253,7 @@ int TcpConnection::read ()
 
 int TcpConnection::sread (char *buffer, const int buffer_size)
 {
-    int num_bytes;              // number of bytes read
-    char* nullchar_location;    // location of '\0' character
-    int str_length;             // length of line to be read
-
-    if (!_is_read_ready())
-        return -1;
-
-    // first, take a peek so we can find that '\n'
-    // -1 so we can null-terminate the string (see below)
-    num_bytes = ::recv(socket_id, buffer, buffer_size - 1, MSG_PEEK);
-
-    if (num_bytes < 0)
-        error("TcpConnection::readline(): ERROR reading from socket");
-
-    *(buffer+num_bytes) = '\0'; // null-terminate that string, for strchr()
-
-    nullchar_location = strchr(buffer, '\0'); // search for '\n'
-
-    if (nullchar_location == NULL)
-        return 0; // not found
-
-    str_length = nullchar_location - buffer;
-
-    // this time, actually do a "read" (instead of a "peek")
-    // +1 to eat the nullchar as well
-    num_bytes = ::recv(socket_id, buffer, str_length + 1, 0);
-
-    if (num_bytes < 0)
-        error("TcpConnection::readline(): ERROR reading from socket");
-
-    return num_bytes;
+    return _get_until(buffer, buffer_size, '\0', 0);
 }
 
 int TcpConnection::sread (CharBuffer &b)
@@ -227,39 +274,7 @@ int TcpConnection::sread ()
 
 int TcpConnection::readline (char *buffer, const int buffer_size)
 {
-    int num_bytes;          // number of bytes read
-    char* newline_location; // location of '\n' character
-    int line_length;        // length of line to be read
-
-    if (!_is_read_ready())
-        return -1;
-
-    // first, take a peek so we can find that '\n'
-    // -1 so we can null-terminate the string (see below)
-    num_bytes = ::recv(socket_id, buffer, buffer_size - 1, MSG_PEEK);
-
-    if (num_bytes < 0)
-        error("TcpConnection::readline(): ERROR reading from socket");
-
-    *(buffer+num_bytes) = '\0'; // null-terminate that string, for strchr()
-
-    newline_location = strchr(buffer, '\n'); // search for '\n'
-
-    if (newline_location == NULL)
-        return 0; // not found
-
-    line_length = newline_location - buffer;
-
-    // this time, actually do a "read" (instead of a "peek")
-    // +1 to eat the newline as well
-    num_bytes = ::recv(socket_id, buffer, line_length + 1, 0);
-
-    if (num_bytes < 0)
-        error("TcpConnection::readline(): ERROR reading from socket");
-
-    *(buffer+num_bytes) = '\0'; // null-terminate that string, yo
-
-    return num_bytes;
+    return _get_until(buffer, buffer_size, '\n', 0);
 }
 
 int TcpConnection::readline (CharBuffer &b)
