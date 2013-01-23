@@ -2,105 +2,110 @@
 
 ////////////////////////////////////////////////////////////////////////////////
 
-void LoadTest::Test::start (LoadTest::Input &i)
-{
-    int ret;
+LoadTest::Input::Input () :
+    target(NULL),
+    request(NULL),
+    num_sessions(1),
+    run_time(0)
+{}
 
-    if (ret = pthread_create(&the_thread, NULL, LoadTest::Test::_run, (void*)&i))
-        error("LoadTest::Test::start(): ERROR creating test thread, %d", ret);
+void LoadTest::Input::print ()
+{
+    printf("Number of Sessions: %d session(s)\n", num_sessions);
+    printf("Run Time:           %d seconds\n", run_time);
 }
 
-LoadTest::Results& LoadTest::Test::wait_and_finish ()
+////////////////////////////////////////////////////////////////////////////////
+
+LoadTest::Result::Result () :
+    num_sessions(0),
+    num_failures(0),
+    num_timeouts(0),
+    num_bytes_written(0),
+    num_bytes_read(0),
+    num_premature_shutdowns(0),
+    time(0.0f)
+{}
+
+void LoadTest::Result::print ()
 {
-    LoadTest::Results* tr;
+    printf("Sessions:               %u\n",              num_sessions);
+    printf("Failures:               %u\n",              num_failures);
+    printf("Timeouts:               %u\n",              num_timeouts);
+    printf("Bytes   Written:        %lu\n",             num_bytes_written);
+    printf("        Read:           %lu\n",             num_bytes_read);
+    printf("Time:                   %-10.2f seconds\n", time);
 
-    pthread_join(the_thread, (void**)&tr);
+    if (num_premature_shutdowns > 0)
+    printf("Premature Shutdowns:    %u\n",              num_premature_shutdowns);
+}
 
-    return *tr;
+////////////////////////////////////////////////////////////////////////////////
+
+LoadTest::Test::Test () :
+    last_run(NOOP)
+{}
+
+void LoadTest::Test::start ()
+{
+    int ret = pthread_create(&the_thread, NULL, LoadTest::Test::_start_thread, this);
+
+    if (ret != 0)
+        error("LoadTest::Test::start(): ERROR creating test thread: [%d:%d]%s", ret, errno, strerror(errno));
+}
+
+void LoadTest::Test::wait_and_finish ()
+{
+    int ret = pthread_join(the_thread, NULL);
+
+    if (ret != 0 && ret != 3) // 3 == no such thread
+        error("LoadTest::Test::wait_and_finish(): ERROR joining test thread: [%d]%s", ret, strerror(ret));
 }
 
 // this function is thread-friendly
-void* LoadTest::Test::_run (void* test_input)
+// also static
+void* LoadTest::Test::_start_thread (void* me)
 {
-    LoadTest::Input* ti = (LoadTest::Input*)test_input;
-    //LoadTest::Results* tr = malloc(sizeof(LoadTest::Results));
-    LoadTest::Results* tr = new LoadTest::Results();
-    //tcp_connection* conn;
-    TcpConnection conn;
-    //struct timeval* clock;
-    Stopwatch clock;
-    //int timeout_counter;
+    // and go!
+    ((LoadTest::Test*)me)->_run();
 
-    // initialize variables
-    tr->num_bytes_read = 0;
-    tr->num_bytes_written = 0;
-    tr->num_timeouts = 0;
-    tr->num_giveups = 0;
-    tr->num_sessions = 0;
-    tr->time = 0.0;
+    return NULL;
+}
+
+void LoadTest::Test::_run ()
+{
+    TcpRun run(input->target, input->request);
+    Stopwatch clock;
+
+    //printf("about to run:\n");
+    //input->print();
 
     // start the clock
     clock.lap();
 
-    while (1)
+    do
     {
-        //timeout_counter = 0;
+        last_run = run.go();
 
-        // establish connection
-        //connect_tcp(conn, ti->host_name, ti->port_number);
-        if (conn.connect(ti->host_name, ti->port_number) == 0)
-        {
-            //cout << "=====SENDING=====" << endl << *ti->input << endl;
+        if (last_run != GREAT_SUCCESS)
+            result.num_failures++;
 
-            // send out the requests
-            //swrite_tcp(conn, ti->input);
-            tr->num_bytes_written += conn.write(*ti->input);
-            conn.shutdown_writes();
+        result.num_sessions++;
+        result.num_timeouts            += run.get_timeouts();
+        result.num_bytes_written       += run.get_bytes_written();
+        result.num_bytes_read          += run.get_bytes_read();
+        result.num_premature_shutdowns += run.get_premature_shutdowns();
 
-            //cout << "=====RECIEVING=====" << endl;
+        result.time += clock.lap();
 
-            // read the responses and check for a timeout, tolerate some number of timeouts
-            while (true)
-            {
-                if (conn.read_all(&tr->num_bytes_read) == -1)
-                {
-                    tr->num_timeouts++;
-                    //timeout_counter++;
-
-                    //if (timeout_counter >= LOADTEST_NUM_TIMEOUTS_TO_TOLERATE)
-                    //{
-                    //    tr->num_giveups++;
-                    //    warn("LoadTest::_run() too many timeouts/errors, giving up on this test");
-                    //    break;
-                    //}
-                }
-                else
-                {
-                    break;
-                }
-            }
-
-            // cleanup
-            //disconnect_tcp(conn);
-            conn.disconnect();
-        }
-
-        // update stats
-        tr->num_sessions++;
-        //tr->time += stopwatch(&clock);
-        tr->time += clock.lap();
-
-        // check if we're done looping
-        if (
-            (ti->run_time_seconds > 0 && (unsigned int)tr->time >= ti->run_time_seconds)    // time is up
-            ||
-            (ti->num_sessions > 0 && tr->num_sessions >= ti->num_sessions)                  // number of sessions reached
-            ||
-            (ti->run_time_seconds <= 0 && ti->num_sessions <= 0)                            // no repeat method specified (one run only)
-            )
+        if (Global::premature_shutdown)
             break;
     }
-
-    //pthread_exit((void*)&tr);
-    return (void*)tr;
+    while (
+        (!(input->num_sessions <= 0 && input->run_time <= 0))
+        &&
+        (input->num_sessions <= 0 || result.num_sessions < input->num_sessions)  // number of sessions not yet reached
+        &&
+        (input->run_time <= 0 || (unsigned int)result.time < input->run_time)    // time isn't up
+    );
 }

@@ -2,332 +2,489 @@
 
 ////////////////////////////////////////////////////////////////////////////////
 
-int TcpConnection::_open_tcp_socket (const char *host_name, const int port_number)
+void print_trs (TcpRunStatus trs)
 {
-    int new_socket_id;              // result from socket() call
-    int connect_result;             // result from connect() call
-    struct hostent *host;           // host object
-    struct sockaddr_in server;      // server object
+    switch (trs)
+    {
+        case NOOP:
+            printf("NOOP\n"); break;
+        case FORCED:
+            printf("FORCED\n"); break;
+        case MULTI_FAIL:
+            printf("MULTI_FAIL\n"); break;
+        case GREAT_SUCCESS:
+            printf("GREAT_SUCCESS\n"); break;
+        case SOCKET_FAIL:
+            printf("SOCKET_FAIL\n"); break;
+        case SOCKET_OK:
+            printf("SOCKET_OK\n"); break;
+        case GETHOSTBYNAME_FAIL:
+            printf("GETHOSTBYNAME_FAIL\n"); break;
+        case GETHOSTBYNAME_OK:
+            printf("GETHOSTBYNAME_OK\n"); break;
+        case CONNECT_FAIL:
+            printf("CONNECT_FAIL\n"); break;
+        case CONNECT_OK:
+            printf("CONNECT_OK\n"); break;
+        case CONNECT_TIMEOUT:
+            printf("CONNECT_TIMEOUT\n"); break;
+        case WRITE_FAIL:
+            printf("WRITE_FAIL\n"); break;
+        case WRITE_OK:
+            printf("WRITE_OK\n"); break;
+        case SELECT_FAIL:
+            printf("SELECT_FAIL\n"); break;
+        case SELECT_TIMEOUT:
+            printf("SELECT_TIMEOUT\n"); break;
+        case SELECT_OK:
+            printf("SELECT_OK\n"); break;
+        case RECV_FAIL:
+            printf("RECV_FAIL\n"); break;
+        case RECV_DONE:
+            printf("RECV_DONE\n"); break;
+        case RECV_OK:
+            printf("RECV_OK\n"); break;
+        case RECV_TIMEOUT:
+            printf("RECV_TIMEOUT\n"); break;
+        case RECV_RESET:
+            printf("RECV_RESET\n"); break;
+        case SHUTDOWN_FAIL:
+            printf("SHUTDOWN_FAIL\n"); break;
+        case SHUTDOWN_OK:
+            printf("SHUTDOWN_OK\n"); break;
+        case CLOSE_FAIL:
+            printf("CLOSE_FAIL\n"); break;
+        case CLOSE_OK:
+            printf("CLOSE_OK\n"); break;
+    }
+}
 
-    new_socket_id = ::socket(AF_INET, SOCK_STREAM, 0); // create socket
+bool resolve_host_name (sockaddr_in* ret, const char* host_name, int port_number)
+{
+    hostent* host = gethostbyname(host_name);
+
+    if (host == NULL)
+    {
+        warn("gethostbyname('%s') FAIL: [%d]%s", host_name, h_errno, hstrerror(h_errno));
+        return false;
+    }
+
+    // zero the server address object
+    bzero((char*)ret, sizeof(&ret));
+    // (as in do_socket()) server is on the internet
+    ret->sin_family = AF_INET;
+    // copy server address string over to object
+    bcopy((char*)host->h_addr, (char*)&ret->sin_addr.s_addr, host->h_length);
+    // convert port number
+    ret->sin_port = htons(port_number);
+
+    //struct sockaddr_in server_address;
+
+    //// zero the server address object
+    //bzero((char*)&server_address, sizeof(server_address));
+    //// (as in do_socket()) server is on the internet
+    //server_address.sin_family = AF_INET;
+    //// copy server address string over to object
+    //bcopy((char*)host->h_addr, (char*)&server_address.sin_addr.s_addr, host->h_length);
+    //// convert port number
+    //server_address.sin_port = htons(port_number);
+
+    return true;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+//TcpRun::TcpRun (const char* host_name, const int port_number, const CharBuffer* request) :
+//    host_name(host_name),
+//    port_number(port_number),
+//    request(request),
+//    timeouts(0),
+//    connect_timeouts(0),
+//    resets(0),
+//    bytes_written(0),
+//    bytes_read(0),
+//    premature_shutdowns(0)
+//{}
+
+TcpRun::TcpRun (sockaddr_in* target, const CharBuffer* request) :
+    target(target),
+    request(request)
+{}
+
+// low-level wrappers around socket i/o functions
+////////////////////////////////////////////////////////////////////////////////
+
+TcpRunStatus TcpRun::do_socket ()
+{
     // AF_INET means that this socket is connecting to an internet address (AF_UNIX would be a unix socket instead)
     // SOCK_STREAM basically means "use TCP" (with SOCK_DGRAM for "use UDP")
     // 0 is for protocol, but should always be 0 which means it will choose the "most appropriate" protocol (TCP for STREAMs and UDP for DataGRAMs)
-    if (new_socket_id < 0) // error check creation of socket
-    {
-        warn("TcpConnection::_open_tcp_socket(): ERROR opening socket");
-        return -1;
-    }
+    socket_id = socket(AF_INET, SOCK_STREAM, 0);
 
-    // process host name input
-    host = ::gethostbyname(host_name);
-    if (host == NULL)
-    {
-        warn("TcpConnection::_open_tcp_socket(): ERROR, no such host");
-        return -1;
-    }
+    return socket_id >= 0 ? SOCKET_OK : SOCKET_FAIL;
+}
 
-    // initialize the server address object
-    bzero((char*)&server, sizeof(server));                                      // zero the server address object
-    server.sin_family = AF_INET;                                                // (as above) server is on the internet
-    bcopy((char*)host->h_addr, (char*)&server.sin_addr.s_addr, host->h_length); // copy server address string over to object
-    server.sin_port = htons(port_number);                                       // convert port number
+//TcpRunStatus TcpRun::do_gethostbyname ()
+//{
+//    host = gethostbyname(host_name);
+//
+//    return host != NULL ? GETHOSTBYNAME_OK : GETHOSTBYNAME_FAIL;
+//}
+
+TcpRunStatus TcpRun::do_connect ()
+{
+    //struct sockaddr_in server_address;
+
+    //// zero the server address object
+    //bzero((char*)&server_address, sizeof(server_address));
+    //// (as in do_socket()) server is on the internet
+    //server_address.sin_family = AF_INET;
+    //// copy server address string over to object
+    //bcopy((char*)host->h_addr, (char*)&server_address.sin_addr.s_addr, host->h_length);
+    //// convert port number
+    //server_address.sin_port = htons(port_number);
 
     // open connection
-    connect_result = ::connect(new_socket_id, (struct sockaddr*)&server, sizeof(server));
-    if (connect_result < 0)
-    {
-        warn("TcpConnection::_open_tcp_socket(): ERROR connecting");
-        return -1;
-    }
-
-    return new_socket_id;
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-TcpConnection::TcpConnection ()
-{
-    connected = false;
-
-    // initialize timeout
-    wait_timeout.tv_sec     = TCP_CONNECTION_TIMEOUT_SEC;
-    wait_timeout.tv_usec    = TCP_CONNECTION_TIMEOUT_USEC;
-}
-
-int TcpConnection::connect (const char *host_name, const int port_number)
-{
-    if (connected)
-        error("TcpConnection::connect() socket already connected");
-
-    // store socket id
-    socket_id = _open_tcp_socket(host_name, port_number);
-
-    if (socket_id < 0)
-    {
-        warn("TcpConnection::connect() error getting socket");
-        return -1;
-    }
-
-    // initialize socket "set"
-    FD_ZERO(&socket_set);
-    FD_SET(socket_id, &socket_set);
-
-    connected = true;
-
-    return 0;
-}
-
-void TcpConnection::shutdown_writes ()
-{
-    ::shutdown(socket_id, SHUT_WR);
-}
-
-void TcpConnection::shutdown_reads ()
-{
-    ::shutdown(socket_id, SHUT_RD);
-}
-
-void TcpConnection::disconnect ()
-{
-    ::shutdown(socket_id, SHUT_RDWR);
-    ::close(socket_id);
-
-    connected = false;
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-int TcpConnection::write (const char *message, const int message_length)
-{
-    int num_bytes; // number of bytes written
-
-    // write message to socket
-    num_bytes = ::write(socket_id, message, message_length);
-
-    if (num_bytes < 0) // error check write to socket
-        error("TcpConnection::write(): ERROR writing to socket");
-    else if (num_bytes < message_length)
-        error("TcpConnection::write(): only wrote %d bytes out of %d", num_bytes, message_length);
-
-    //::shutdown(socket_id, SHUT_WR);
-
-    return num_bytes;
-}
-
-int TcpConnection::write (CharBuffer &b)
-{
-    return write(b.chars, b.size);
-}
-
-int TcpConnection::swrite (const char *message)
-{
-    return write(message, strlen(message));
-}
-
-int TcpConnection::swrite (string &message)
-{
-    return write(message.c_str(), message.length());
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-bool TcpConnection::_is_read_ready ()
-{
-    int result; // select result
-
-    result = ::select(FD_SETSIZE, &socket_set, NULL, NULL, &wait_timeout);
-
-    if (result < 0)
-    {
-        warn("TcpConnection::_is_read_ready(): ERROR select()ing socket");
-        timeout = true;
-    }
-    else if (result == 0)
-    {
-        warn("TcpConnection::_is_read_ready(): select() timeout");
-        timeout = true; // timeout
-    }
+    if (connect(socket_id, (struct sockaddr*)target, sizeof(sockaddr_in)) == 0)
+        return CONNECT_OK;
+    else if (errno == 60)
+        return CONNECT_TIMEOUT;
     else
-    {
-        timeout = false; // good to go
-    }
-
-    return !timeout;
+        return CONNECT_FAIL;
 }
 
-bool TcpConnection::check_timeout ()
+TcpRunStatus TcpRun::do_write ()
 {
-    return timeout;
+    int r = write(socket_id, request->chars, request->size);
+
+    if (r > 0)
+        bytes_written += r;
+
+    return r == request->size ? WRITE_OK : WRITE_FAIL;
 }
 
-////////////////////////////////////////////////////////////////////////////////
-
-int TcpConnection::_get (char *buffer, const int buffer_size, const int mode)
+TcpRunStatus TcpRun::do_select ()
 {
-    int num_bytes; // number of bytes read
+    // initialize timeout
+    select_timeout.tv_sec   = TCP_SELECT_TIMEOUT_SEC;
+    select_timeout.tv_usec  = TCP_SELECT_TIMEOUT_USEC;
 
-    if (!_is_read_ready())
-        return -1;
+    // select() uses the fd_set struct to manage select()ing multiple file descriptors
+    // unfortunately we have to use this even though we just want to check on the one
+    FD_ZERO(&socket_set); // reset set
+    FD_SET(socket_id, &socket_set); // set our fd (socket)
+
+    int r = select(FD_SETSIZE, &socket_set, NULL, NULL, &select_timeout);
+
+    if (r > 0)
+        return SELECT_OK;
+    else if (r == 0)
+        return SELECT_TIMEOUT;
+    else
+        return SELECT_FAIL;
+}
+
+TcpRunStatus TcpRun::do_recv ()
+{
+    // initialize timeout
+    recv_timeout.tv_sec     = TCP_RECV_TIMEOUT_SEC;
+    recv_timeout.tv_usec    = TCP_RECV_TIMEOUT_USEC;
+
+    // set timeout on socket
+    setsockopt(socket_id, SOL_SOCKET, SO_RCVTIMEO, (void*)&recv_timeout, sizeof(struct timeval));
 
     // grab input from socket
-    num_bytes = ::recv(socket_id, buffer, buffer_size, mode);
+    int r = recv(socket_id, buff.chars, buff.size, 0);
 
-    if (num_bytes < 0) // error check read from socket
-    {
-        warn("TcpConnection::_get(): ERROR reading from socket");
-        return -1;
-    }
+    if (r > 0)
+        bytes_read += r;
 
-    return num_bytes;
-}
-
-int TcpConnection::_get_until (char *buffer, const int buffer_size, const char until, const int mode)
-{
-    int num_bytes;              // number of bytes read
-    char* until_char_location;  // location of the "until" character
-    int str_length;             // length of line to be read
-
-    if (!_is_read_ready())
-        return -1;
-
-    // first, take a peek so we can find the "until" character
-    // -1 so we can null-terminate the string (see below)
-    num_bytes = ::recv(socket_id, buffer, buffer_size - 1, MSG_PEEK);
-
-    if (num_bytes < 0)
-    {
-        warn("TcpConnection::_get_until(): ERROR reading from socket");
-        return -1;
-    }
-
-    *(buffer+num_bytes) = '\0'; // null-terminate that string for strchr()
-
-    until_char_location = strchr(buffer, until); // search for the "until" character
-
-    if (until_char_location == NULL)
-        return 0; // not found, buffer might not be big enough
-
-    str_length = until_char_location - buffer;
-
-    // +1 to eat the "until" character as well
-    num_bytes = ::recv(socket_id, buffer, str_length + 1, mode);
-
-    if (num_bytes < 0)
-    {
-        warn("TcpConnection::_get_until(): ERROR reading from socket");
-        return -1;
-    }
-
-    *(buffer+num_bytes) = '\0'; // null-terminate that string, yo
-
-    return num_bytes;
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-/* read as much as possible
- * into the provided buffer
- */
-
-int TcpConnection::read (char *buffer, const int buffer_size)
-{
-    return _get(buffer, buffer_size, 0);
-}
-
-int TcpConnection::read (CharBuffer &b)
-{
-    return read(b.chars, b.size);
-}
-
-int TcpConnection::read ()
-{
-    return read(buffer);
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-/* read as much as possible up to and including a null character
- * or the maximum buffer size into the provided buffer
- */
-
-int TcpConnection::sread (char *buffer, const int buffer_size)
-{
-    return _get_until(buffer, buffer_size, '\0', 0);
-}
-
-int TcpConnection::sread (CharBuffer &b)
-{
-    return sread(b.chars, b.size);
-}
-
-int TcpConnection::sread ()
-{
-    return sread(buffer);
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-/* read as much as possible up to and including a newline character
- * or nothing! into the provided buffer
- */
-
-int TcpConnection::readline (char *buffer, const int buffer_size)
-{
-    return _get_until(buffer, buffer_size, '\n', 0);
-}
-
-int TcpConnection::readline (CharBuffer &b)
-{
-    return readline(b.chars, b.size);
-}
-
-int TcpConnection::readline ()
-{
-    return readline(buffer);
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-/* read all bytes there are to read into the internal buffer
- * optionally keep a count
- */
-
-int TcpConnection::read_all (unsigned long* num_bytes)
-{
-    int read_bytes;
-
-    while ((read_bytes = read()) > 0)
-        if (num_bytes != NULL)
-            *num_bytes += read_bytes;
-
-    if (check_timeout())
-        return -1;
+    if (r > 0)
+        return RECV_OK;
+    else if (r == 0)
+        return RECV_DONE;
+    else if (errno == 60)
+        return RECV_TIMEOUT;
+    else if (errno == 54)
+        return RECV_RESET;
     else
-        return 0;
+        return RECV_FAIL;
 }
 
-int TcpConnection::print_all (unsigned long* num_bytes)
+TcpRunStatus TcpRun::do_shutdown ()
 {
-    int read_bytes;
-
-    while ((read_bytes = sread()) > 0)
+    if (shutdown(socket_id, SHUT_RDWR) == 0)
     {
-        if (num_bytes != NULL)
-            *num_bytes += read_bytes;
+        return SHUTDOWN_OK;
+    }
+    else
+    {
+        if (errno == 57) // socket already shut down (remotely?)
+        {
+            return SHUTDOWN_OK;
+        }
+        else
+        {
+            return SHUTDOWN_FAIL;
+        }
+    }
+}
 
-        cout << last_read();
+TcpRunStatus TcpRun::do_close ()
+{
+    return close(socket_id) == 0 ? CLOSE_OK : CLOSE_FAIL;
+}
+
+// higher-level wrappers around above
+// these will be displaying error messages
+////////////////////////////////////////////////////////////////////////////////
+
+// a wrapper around do_socket()
+TcpRunStatus TcpRun::_go_init ()
+{
+    TcpRunStatus socket = NOOP;
+    //TcpRunStatus gethostbyname = NOOP;
+
+    socket = do_socket();
+
+    if (socket != SOCKET_OK)
+        warn("go(): do_socket() FAIL: [%d]%s", errno, strerror(errno));
+
+    return socket;
+}
+
+// a wrapper around do_connect()
+TcpRunStatus TcpRun::_go_connect (int max_reconnects)
+{
+    TcpRunStatus connect = NOOP;
+
+    connect = do_connect();
+
+    if (connect != CONNECT_OK)
+        warn("go(): do_connect() FAIL: [%d]%s", errno, strerror(errno));
+
+    return connect;
+}
+
+// simple wrapper around do_write()
+TcpRunStatus TcpRun::_go_write ()
+{
+    TcpRunStatus write = do_write();
+
+    if (write != WRITE_OK)
+        warn("go(): do_write() FAIL: [%d]%s", errno, strerror(errno));
+
+    return write;
+}
+
+// preforms select() and recv() until there's no more data and retries on timeouts
+TcpRunStatus TcpRun::_go_read (int max_timeouts)
+{
+    TcpRunStatus result = NOOP;
+    TcpRunStatus select = NOOP;
+    TcpRunStatus recv   = NOOP;
+
+    while (recv != RECV_DONE)
+    {
+        if (Global::premature_shutdown)
+        {
+            premature_shutdowns++;
+            result = FORCED;
+            break;
+        }
+
+        select = do_select();
+
+        if (Global::premature_shutdown)
+        {
+            premature_shutdowns++;
+            result = FORCED;
+            break;
+        }
+
+        if (select == SELECT_OK)
+        {
+            recv = do_recv();
+
+            if (recv == RECV_TIMEOUT)
+            {
+                timeouts++;
+
+                if (max_timeouts >= 0 && timeouts > max_timeouts)
+                {
+                    warn("go(): do_recv() FAIL: too many timeouts");
+                    break;
+                }
+            }
+            else if (recv == RECV_FAIL || recv == RECV_RESET)
+            {
+                if (recv == RECV_RESET)
+                    resets++;
+
+                warn("go(): do_recv() FAIL: [%d]%s", errno, strerror(errno));
+                break;
+            }
+        }
+        else if (select == SELECT_TIMEOUT)
+        {
+            timeouts++;
+
+            if (max_timeouts >= 0 && timeouts > max_timeouts)
+            {
+                warn("go(): do_select() FAIL: too many timeouts");
+                break;
+            }
+        }
+        else if (select == SELECT_FAIL)
+        {
+            warn("go(): do_select() FAIL: [%d]%s", errno, strerror(errno));
+            break;
+        }
     }
 
-    if (check_timeout())
-        return -1;
-    else
-        return 0;
+    return result == NOOP ? (select == SELECT_OK ? recv : select) : result;
+
+    // so... possible return values are:
+    //
+    // NOOP             (will never return this)
+    // SELECT_OK        (will never return this)
+    // RECV_OK          (will never return this)
+    //
+    // SELECT_TIMEOUT   maximum number of timeouts reached, last one on select()
+    // RECV_TIMEOUT     maximum number of timeouts reached, last one on recv()
+    // RECV_RESET       server reset the connection
+    // FORCED           premature shutdown
+    // SELECT_FAIL      select() failed for some other reason
+    // RECV_FAIL        recv() failed for some other reason
+    // RECV_DONE        successful read
+}
+
+// the counterpart to a successful _go_connect()
+TcpRunStatus TcpRun::_go_disconnect ()
+{
+    TcpRunStatus shutdown = NOOP;
+    TcpRunStatus close = NOOP;
+
+    shutdown = do_shutdown();
+
+    if (shutdown == SHUTDOWN_FAIL)
+        warn("go(): do_shutdown() FAIL: [%d]%s", errno, strerror(errno));
+
+    close = do_close();
+
+    if (close == CLOSE_FAIL)
+        warn("go(): do_close() FAIL: [%d]%s", errno, strerror(errno));
+
+    return shutdown == SHUTDOWN_OK ? close : shutdown;
+
+    // so... possible return values are:
+    //
+    // SHUTDOWN_OK      (will never return this)
+    //
+    // SHUTDOWN_FAIL    shutdown() failed for some reason
+    // CLOSE_FAIL       close() failed for some reason
+    // CLOSE_OK         disconnect successful
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-const char* TcpConnection::last_read ()
+TcpRunStatus TcpRun::go ()
 {
-    return buffer.chars;
+    TcpRunStatus init = NOOP;
+    TcpRunStatus connect = NOOP;
+    TcpRunStatus write = NOOP;
+    TcpRunStatus read = NOOP;
+    TcpRunStatus disconnect = NOOP;
+
+    timeouts            = 0;
+    resets              = 0;
+    bytes_written       = 0;
+    bytes_read          = 0;
+    premature_shutdowns = 0;
+
+    //if ((init = _go_init()) == GETHOSTBYNAME_OK)
+    if ((init = do_socket()) == SOCKET_OK)
+    {
+        if ((connect = _go_connect(TCP_MAX_RECONNECTS)) == CONNECT_OK)
+        {
+            if ((write = _go_write()) == WRITE_OK)
+            {
+                read = _go_read(TCP_MAX_READ_TIMEOUTS);
+            }
+
+            disconnect = _go_disconnect();
+        }
+    }
+
+    // this is the return "statement"
+    if (init == SOCKET_OK)
+    {
+        if (connect == CONNECT_OK)
+        {
+            if (disconnect == CLOSE_OK)
+            {
+                if (write == WRITE_OK)
+                {
+                    if (read == RECV_DONE)
+                        return GREAT_SUCCESS;
+                    else
+                        return read;
+                }
+                else
+                {
+                    return write;
+                }
+            }
+            else
+            {
+                if (write == WRITE_OK && read == RECV_DONE)
+                    return disconnect;
+                else
+                    return MULTI_FAIL;
+            }
+        }
+        else
+        {
+            return connect;
+        }
+    }
+    else
+    {
+        return init;
+    }
+}
+
+unsigned int TcpRun::get_timeouts ()
+{
+    return timeouts;
+}
+
+//unsigned int TcpRun::get_connect_timeouts ()
+//{
+//    return connect_timeouts;
+//}
+
+unsigned int TcpRun::get_resets ()
+{
+    return resets;
+}
+
+unsigned long TcpRun::get_bytes_written ()
+{
+    return bytes_written;
+}
+
+unsigned long TcpRun::get_bytes_read ()
+{
+    return bytes_read;
+}
+
+unsigned int TcpRun::get_premature_shutdowns ()
+{
+    return premature_shutdowns;
+}
+
+void TcpRun::print ()
+{
+    printf("%s", request->chars);
 }

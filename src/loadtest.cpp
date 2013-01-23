@@ -1,18 +1,19 @@
-#include "utils.h"
-#include "tcp.h"
-#include "test.h"
-#include <pthread.h>
-#include <unistd.h>
+//#include <pthread.h>
+//#include <unistd.h>
 //#include <limits.h>
+//#include <math.h>
+//#include <signal.h>
+#include <iostream>
+#include <fstream>
+//#include "utils.h"
+//#include "tcp.h"
+//#include "test.h"
+#include "tester.h"
 
-//#define BUF_SIZE 1024
-
-int i, ret;
-//char buffer[BUF_SIZE];
-CharBuffer buffer; // general-use buffer
-
-// the following variables are set from command-line args
+// the following variables are set from command-line args (in get_options())
 int     cli_num_concurrent_users    = 1;
+int     cli_ramp_factor             = 1;
+int     cli_ramp_wait               = 1;
 int     cli_num_sessions            = 0;
 int     cli_run_time_seconds        = 0;
 char    *cli_host_name              = NULL;
@@ -27,6 +28,8 @@ void usage ()
     fprintf(stderr, "         [-c num_concurrent_users]\n");
     fprintf(stderr, "         [-r num_sessions]\n");
     fprintf(stderr, "         [-t run_time_seconds]\n");
+    fprintf(stderr, "         [-R ramp_factor]\n");
+    fprintf(stderr, "         [-W ramp_wait (in seconds)]\n");
     fprintf(stderr, "         [-i input_file1 -i input_file2 -i input_file3 ...]\n");
     exit(1);
 }
@@ -36,15 +39,15 @@ void get_options (int argc, char **argv)
     int opt;
 
     // first, need to know how many -i arguments there are so we can allocate for them all
-    for (i = 0; i < argc; i++)
+    for (int i = 0; i < argc; i++)
         if (strncmp(*(argv+i), "-i", 3) == 0)
             cli_num_input_files++;
 
     cli_input_files = (char**)calloc(cli_num_input_files, sizeof(char*));
 
     // grab options
-    i = 0; // use this for the input file counter
-    while ((opt = getopt (argc, argv, "c:h:i:p:r:t:")) != -1)
+    int i = 0; // use this for the input file counter
+    while ((opt = getopt (argc, argv, "c:h:i:p:r:t:R:W:")) != -1)
     {
         switch (opt)
         {
@@ -73,152 +76,80 @@ void get_options (int argc, char **argv)
                 cli_run_time_seconds = atoi(optarg);
                 break;
 
+            case 'R':
+                cli_ramp_factor = atoi(optarg);
+                break;
+
+            case 'W':
+                cli_ramp_wait = atoi(optarg);
+                break;
+
             default:
                 usage();
         }
     }
 
     // enforce usage
-    if (cli_num_concurrent_users < 1 || cli_host_name == NULL || cli_port_number < 1)
+    if (cli_num_concurrent_users < 1 || cli_host_name == NULL || cli_port_number < 1 || cli_ramp_factor < 1 || cli_ramp_wait < 0)
+    {
+        printf("bad arguments?\n");
+
         usage();
-}
-
-void print_initial_summary ()
-{
-    //printf("maximum number of threads: %ld or %d\n", sysconf(_SC_THREADS), _POSIX_THREAD_THREADS_MAX);
-
-    if (cli_num_concurrent_users > 1)
-        printf("running with %d users, ", cli_num_concurrent_users);
-    else
-        printf("running with 1 user, ");
-
-    if (cli_num_sessions > 0 && cli_run_time_seconds > 0)
-        printf("each doing %d sessions or running for %d seconds (whichever comes first), ", cli_num_sessions, cli_run_time_seconds);
-    else if (cli_num_sessions > 0)
-        printf("each doing %d sessions, ", cli_num_sessions);
-    else if (cli_run_time_seconds > 0)
-        printf("each running for %d seconds, ", cli_run_time_seconds);
-    else
-        printf("each doing 1 session, ");
-
-    printf("targeting %s port %d...\n", cli_host_name, cli_port_number);
+    }
 }
 
 int main (int argc, char **argv)
 {
-    //test_input      *the_inputs;
-    //pthread_t       *the_tests;
-    //test_results    **the_results;
-
+    // process some input
     get_options(argc, argv);
 
-    // allocate input buckets, threads, and result buckets
-    //the_inputs  = calloc(cli_num_input_files > 0 ? cli_num_input_files : 1, sizeof(test_input));
-    //the_tests   = calloc(cli_num_concurrent_users, sizeof(pthread_t));
-    //the_results = calloc(cli_num_concurrent_users, sizeof(test_results*));
-    LoadTest::Input     the_inputs  [cli_num_input_files > 0 ? cli_num_input_files : 1];
-    LoadTest::Test      the_tests   [cli_num_concurrent_users];
-    LoadTest::Results   the_results [cli_num_concurrent_users];
+    // grab input(s)
+    CharBuffer** requests;
 
-    unsigned long total_bytes_read      = 0;
-    unsigned long total_bytes_written   = 0;
-    unsigned int total_timeouts         = 0;
-    unsigned int total_sessions         = 0;
-    double total_time                   = 0;
-
-    // initialize a test input
-    the_inputs[0].host_name         = cli_host_name;
-    the_inputs[0].port_number       = cli_port_number;
-    the_inputs[0].num_sessions      = cli_num_sessions;
-    the_inputs[0].run_time_seconds  = cli_run_time_seconds;
-    the_inputs[0].input             = NULL;
-
-    // grab input
     if (cli_num_input_files > 0) // input coming from files designated using command line args
     {
-        // first, copy the first test input to all other test inputs
-        for (i = 1; i < cli_num_input_files; i++)
-            the_inputs[i] = the_inputs[0];
-            //memcpy(&the_inputs[i], &the_inputs[0], sizeof(test_input));
+        requests = new CharBuffer*[cli_num_input_files];
 
         // then, assign each input file to each of the_inputs
-        for (i = 0; i < cli_num_input_files; i++)
-            the_inputs[i].input = read_file(cli_input_files[i], buffer);
+        for (int i = 0; i < cli_num_input_files; i++)
+        {
+            ifstream input(cli_input_files[i]);
+
+            requests[i] = new CharBuffer(input);
+        }
     }
     else
     {
-        printf("Please enter the message: \n");
-        the_inputs[0].input = read_istream(cin, buffer);
-        printf("Thank you.\n");
-
         cli_num_input_files = 1;
+
+        requests = new CharBuffer*[1];
+
+        printf("Please enter the request:\n");
+        requests[0] = new CharBuffer(cin);
     }
 
-    print_initial_summary();
+    // set up the tester
+    LoadTest::Tester t(cli_host_name, cli_port_number, cli_num_sessions, cli_run_time_seconds);
 
-    // create all those threads, assigning a different the_inputs to each test by cycling through all of them
-    for (i = 0; i < cli_num_concurrent_users; i++)
-        the_tests[i].start(the_inputs[i%cli_num_input_files]);
-        //if (ret = pthread_create(&the_tests[i], NULL, run_test, (void*)( &the_inputs[i%cli_num_input_files] )))
-        //    error("main(): ERROR creating test thread, %d", ret);
+    t.set_num_tests_per_ramp(cli_num_concurrent_users);
+    t.set_num_ramps(cli_ramp_factor);
+    t.set_ramp_wait(cli_ramp_wait);
 
-    // now join them all back and do some metrics
-    for (i = 0; i < cli_num_concurrent_users; i++)
-    {
-        // the pointer magic gets confusing, but it works
-        the_results[i] = the_tests[i].wait_and_finish();
-        //pthread_join(the_tests[i], (void*)&the_results[i]);
+    for (int i = 0; i < cli_num_input_files; i++)
+        t.add_input(*requests[i]);
 
-        total_bytes_read    += the_results[i].num_bytes_read;
-        total_bytes_written += the_results[i].num_bytes_written;
-        total_timeouts      += the_results[i].num_timeouts;
-        total_time          += the_results[i].time;
-        total_sessions      += the_results[i].num_sessions;
+    // do it!
+    t.print_initial_summary();
+    t.start_signal_handlers();
+    t.init_tests();
+    t.run_tests();
+    t.finish_tests();
+    t.print_final_summary();
 
-        // thread summary
-        //printf("thread %d completed %u sessions read %.2f MiB in %.2f seconds (%.2f KiBps) (%u timeouts)\n",
-        //    i,
-        //    the_results[i]->num_sessions,
-        //    (double)the_results[i]->num_bytes_read / (1024 * 1024),
-        //    the_results[i]->time,
-        //    the_results[i]->num_bytes_read / (the_results[i]->time * 1024),
-        //    the_results[i]->num_timeouts);
-
-        //free(the_results[i]);
-    }
-
-    // free all allocated memory
-    //for (i = 0; i < cli_num_input_files; i++)
-    //    free(the_inputs[i].input);
-
-    //free(the_inputs);
-    //free(the_tests);
-    //free(the_results);
-
-    // overall summary
-    printf("Totals:\n");
-    printf("===================\n");
-    printf("Sessions:               %-10u\n",                                    total_sessions);
-    printf("                        %-10.2f sessions per second\n",              total_sessions / (total_time / cli_num_concurrent_users));
-    printf("                        %-10.2f sessions per thread\n",              (double)total_sessions / cli_num_concurrent_users);
-    printf("                        %-10.2f sessions per thread per second\n",   total_sessions / total_time);
-    printf("\n");
-
-    printf("Total Time:             %-10.2f seconds\n",                          total_time);
-    printf("                        %-10.2f average seconds per thread\n",       total_time / cli_num_concurrent_users);
-    printf("\n");
-
-    printf("Data (down):            %-10.2f MiB\n",                              (double)total_bytes_read / (1024 * 1024));
-    printf("                        %-10.2f average KiBps\n",                    (total_bytes_read / 1024) / (total_time / cli_num_concurrent_users));
-    printf("                        %-10.2f average KiBps per thread\n",         (total_bytes_read / 1024) / total_time);
-    printf("\n");
-
-    printf("Data (up):              %-10.2f MiB\n",                              (double)total_bytes_written / (1024 * 1024));
-    printf("                        %-10.2f average KiBps\n",                    (total_bytes_written / 1024) / (total_time / cli_num_concurrent_users));
-    printf("                        %-10.2f average KiBps per thread\n",         (total_bytes_written / 1024) / total_time);
-    printf("\n");
-
-    printf("Number of Timeouts:     %-10u\n",                                    total_timeouts);
+    // clean up
+    for (int i = 0; i < cli_num_input_files; i++)
+        delete requests[i];
+    delete [] requests;
 
     return 0;
 }

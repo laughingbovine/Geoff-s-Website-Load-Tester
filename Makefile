@@ -8,12 +8,12 @@ all: loadtest tests
 
 ################################################################################
 
-loadtest: obj/utils.o obj/tcp.o obj/test.o obj/loadtest.o
+loadtest: obj/utils.o obj/tcp.o obj/test.o obj/tester.o obj/loadtest.o
 	g++ -lpthread -o $@ $^
 
 ################################################################################
 
-tests: utils.test tcp.test test.test
+tests: utils.test tcp.test test.test tester.test
 
 utils.test: obj/utils.o obj/test/utils.o
 	g++ -o $@ $^
@@ -22,6 +22,9 @@ tcp.test: obj/utils.o obj/tcp.o obj/test/tcp.o
 	g++ -o $@ $^
 
 test.test: obj/utils.o obj/tcp.o obj/test.o obj/test/test.o
+	g++ -lpthread -o $@ $^
+
+tester.test: obj/utils.o obj/tcp.o obj/test.o obj/tester.o obj/test/tester.o
 	g++ -lpthread -o $@ $^
 
 ################################################################################

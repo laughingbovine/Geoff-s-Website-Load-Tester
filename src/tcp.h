@@ -8,59 +8,108 @@
 #include <sys/socket.h>
 #include <netdb.h>
 
-#define TCP_CONNECTION_TIMEOUT_SEC 30
-#define TCP_CONNECTION_TIMEOUT_USEC 0
+#define TCP_SELECT_TIMEOUT_SEC 5
+#define TCP_SELECT_TIMEOUT_USEC 0
 
-class TcpConnection
+#define TCP_RECV_TIMEOUT_SEC 2
+#define TCP_RECV_TIMEOUT_USEC 0
+
+#define TCP_MAX_RECONNECTS 0
+#define TCP_MAX_READ_TIMEOUTS -1
+
+enum TcpRunStatus {
+    NOOP,
+    FORCED,
+    MULTI_FAIL,
+    GREAT_SUCCESS,
+    SOCKET_FAIL,
+    SOCKET_OK,
+    GETHOSTBYNAME_FAIL,
+    GETHOSTBYNAME_OK,
+    CONNECT_FAIL,
+    CONNECT_OK,
+    CONNECT_TIMEOUT,
+    WRITE_FAIL,
+    WRITE_OK,
+    SELECT_FAIL,
+    SELECT_TIMEOUT,
+    SELECT_OK,
+    RECV_FAIL,
+    RECV_DONE,
+    RECV_OK,
+    RECV_TIMEOUT,
+    RECV_RESET,
+    SHUTDOWN_FAIL,
+    SHUTDOWN_OK,
+    CLOSE_FAIL,
+    CLOSE_OK
+};
+
+void print_trs (TcpRunStatus trs);
+
+bool resolve_host_name (sockaddr_in*, const char*, int);
+
+class TcpRun
 {
     private:
-    bool connected;
-    bool timeout;
+    // test input
+    //const char* host_name;
+    //const int port_number;
+    const sockaddr_in* target;
+    const CharBuffer* request;
+
+    // a read buffer
+    CharBuffer buff;
+
+    // timeout values
+    struct timeval select_timeout;
+    struct timeval recv_timeout;
+
+    // socket/net stuff
     int socket_id;
+    //struct hostent* host;
     fd_set socket_set;
-    struct timeval wait_timeout;
-    CharBuffer buffer;
 
-    ////////////////////////////////////////////////////////////////////////////////
-
-    private:
-    static int _open_tcp_socket (const char*, const int);
-
-    bool _is_read_ready ();
-
-    int _get (char*, const int, const int);
-    int _get_until (char*, const int, const char, const int);
+    // counters
+    unsigned int timeouts;
+    //unsigned int connect_timeouts;
+    unsigned int resets;
+    unsigned long bytes_written;
+    unsigned long bytes_read;
+    unsigned int premature_shutdowns;
 
     public:
-    TcpConnection ();
-    int connect (const char*, const int);
-    void disconnect ();
-    void shutdown_writes ();
-    void shutdown_reads ();
+    //TcpRun (const char*, const int, const CharBuffer*);
+    TcpRun (sockaddr_in*, const CharBuffer*);
 
-    int write (const char*, const int);
-    int write (CharBuffer&);
-    int swrite (const char*);
-    int swrite (string&);
+    TcpRunStatus go ();
 
-    bool check_timeout ();
+    unsigned int get_timeouts ();
+    //unsigned int get_connect_timeouts ();
+    unsigned int get_resets ();
+    unsigned long get_bytes_written ();
+    unsigned long get_bytes_read ();
+    unsigned int get_premature_shutdowns ();
 
-    int read (char*, const int);
-    int read (CharBuffer&);
-    int read ();
+    void print ();
 
-    int sread (char*, const int);
-    int sread (CharBuffer&);
-    int sread ();
+    private:
+    // mid-level
+    TcpRunStatus _go_init ();
+    TcpRunStatus _go_connect (int);
+    TcpRunStatus _go_write ();
+    TcpRunStatus _go_read (int);
+    TcpRunStatus _go_disconnect ();
 
-    int readline (char*, const int);
-    int readline (CharBuffer&);
-    int readline ();
-
-    int read_all (unsigned long*);
-    int print_all (unsigned long*);
-
-    const char* last_read ();
+    // low-level
+    TcpRunStatus do_socket ();
+    //TcpRunStatus do_gethostbyname ();
+    TcpRunStatus do_connect ();
+    TcpRunStatus do_write ();
+    TcpRunStatus do_select ();
+    TcpRunStatus do_recv ();
+    TcpRunStatus do_shutdown ();
+    TcpRunStatus do_close ();
 };
 
 #endif

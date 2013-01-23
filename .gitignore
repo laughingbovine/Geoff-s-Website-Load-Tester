@@ -1,13 +1,17 @@
 .git
 .svn
 .gitignore
+h264_run.sh
 loadtest
 tcp.test
 utils.test
 test.test
+tester.test
 *.o
 requests/localhost_*
 requests/pulitzer_*
+requests/h264*
 requests.easy/*.easy
+requests.pcap/*
 *.vim
 src/stringhashtable.*

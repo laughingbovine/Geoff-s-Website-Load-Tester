@@ -5,29 +5,34 @@
 #include "utils.h"
 #include <pthread.h>
 
-#define LOADTEST_NUM_TIMEOUTS_TO_TOLERATE 3
-
 namespace LoadTest
 {
     struct Input
     {
-        //Input () { cout << "input init" << endl; }
-        const char* host_name;
-        int port_number;
-        CharBuffer* input;
-        int num_sessions;
-        int run_time_seconds;
+        sockaddr_in* target;
+        CharBuffer* request;
+
+        unsigned int num_sessions;
+        unsigned int run_time;
+
+        Input ();
+
+        void print ();
     };
 
-    struct Results
+    struct Result
     {
-        //Results () { cout << "results init" << endl; }
-        double time;
-        unsigned long num_bytes_read;
-        unsigned long num_bytes_written;
-        unsigned int num_timeouts;
-        unsigned int num_giveups;
         unsigned int num_sessions;
+        unsigned int num_failures;
+        unsigned int num_timeouts;
+        unsigned long num_bytes_written;
+        unsigned long num_bytes_read;
+        unsigned int num_premature_shutdowns;
+        double time;
+
+        Result ();
+
+        void print ();
     };
 
     class Test
@@ -35,13 +40,19 @@ namespace LoadTest
         private:
         pthread_t the_thread;
 
-        private:
-        static void* _run (void* test_input);
-
         public:
-        void start (Input &i);
-        Results& wait_and_finish ();
+        TcpRunStatus last_run;
+        Input* input;
+        Result result;
 
+        Test ();
+
+        void start ();
+        void wait_and_finish ();
+
+        private:
+        void _run ();
+        static void* _start_thread (void*);
     };
 }
 

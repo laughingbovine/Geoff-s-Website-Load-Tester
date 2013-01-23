@@ -1,14 +1,22 @@
 #include "../utils.h"
 
+#include <fstream>
+
 ////////////////////////////////////////////////////////////////////////////////
 
-int main (int argc, char* argv)
+int main (int argc, char** argv)
 {
+    for (int i = 0; i < argc; i++)
+        printf("arg %i: %s\n", i, argv[i]);
+
+    if (argc != 2)
+        error("need 1 (and only 1) arg (filename to read from)");
+
     Stopwatch s;
-    CharBuffer b;
-    CharBuffer* text = sread_istream(cin, b);
+    ifstream input(argv[1]);
+    CharBuffer text(input);
 
-    cout << text->chars << "hi there" << endl << s.lap() << " seconds" << endl;
+    cout << text << endl << s.lap() << " seconds" << endl;
 
-    error("oh noes!");
+    warn("oh noes!");
 }
