@@ -5,6 +5,17 @@
 #include "utils.h"
 #include <pthread.h>
 
+enum TestStatus {
+    JUST_CREATED,
+    STARTING,
+    CREATE_THREAD_FAIL,
+    RUNNING,
+    DONE_RUNNING,
+    JOINING,
+    JOIN_THREAD_FAIL,
+    JOINED
+};
+
 namespace LoadTest
 {
     struct Input
@@ -25,6 +36,7 @@ namespace LoadTest
         unsigned int num_sessions;
         unsigned int num_failures;
         unsigned int num_timeouts;
+        unsigned int num_resets;
         unsigned long num_bytes_written;
         unsigned long num_bytes_read;
         unsigned int num_premature_shutdowns;
@@ -39,6 +51,7 @@ namespace LoadTest
     {
         private:
         pthread_t the_thread;
+        TestStatus status;
 
         public:
         TcpRunStatus last_run;
@@ -47,12 +60,16 @@ namespace LoadTest
 
         Test ();
 
+        TestStatus get_status () const;
+
         void start ();
         void wait_and_finish ();
 
+        void print ();
+
         private:
-        void _run ();
         static void* _start_thread (void*);
+        void _run ();
     };
 }
 

@@ -21,7 +21,9 @@ int main (int argc, char** argv)
     // join them and collect/print statistics                                     //
     ////////////////////////////////////////////////////////////////////////////////
     t.init_tests();
+    t.finish_tests_start();
     t.run_tests();
-    t.finish_tests();
+    //t.finish_tests();
+    t.finish_tests_finish();
     t.print_final_summary();
 }

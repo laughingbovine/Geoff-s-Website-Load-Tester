@@ -1,8 +1,11 @@
 #ifndef _TESTER_H_
 #define _TESTER_H_
 
-#include <vector>
 #include "test.h"
+#include <vector>
+#include <pthread.h>
+
+#define TESTER_FINISH_TEST_THREAD_SWEEPTIME 5
 
 void start_premature_shutdown (int param);
 
@@ -27,15 +30,23 @@ namespace LoadTest
         vector<Input*> inputs;
         vector<Test*> tests;
 
+        pthread_t finish_tests_thread;
+
         // results
         unsigned int total_sessions;
         unsigned int total_failures;
         unsigned int total_timeouts;
+        unsigned int total_resets;
         unsigned long total_bytes_written;
         unsigned long total_bytes_read;
         unsigned int total_premature_shutdowns;
-        unsigned int tests_ignored;
         double total_time;
+
+        // stats
+        unsigned int last_num_tests_running;
+        unsigned int last_num_tests_finished;
+        unsigned int num_tests_running;
+        unsigned int num_tests_finished;
 
         public:
         Tester (const char*, int, unsigned int, unsigned int);
@@ -50,11 +61,16 @@ namespace LoadTest
         void print_initial_summary ();
         void start_signal_handlers ();
         void init_tests ();
+        void finish_tests_start ();
         void run_tests ();
-        void finish_tests ();
+        void finish_tests_finish ();
         void print_final_summary ();
 
-        // TODO: test finisher thread
+        private:
+        void finish_test (int);
+        void cleanup_bad_test (int);
+        static void* finish_tests_init (void*);
+        void finish_tests_loop ();
     };
 };
 

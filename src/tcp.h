@@ -14,8 +14,11 @@
 #define TCP_RECV_TIMEOUT_SEC 2
 #define TCP_RECV_TIMEOUT_USEC 0
 
-#define TCP_MAX_RECONNECTS 0
-#define TCP_MAX_READ_TIMEOUTS -1
+// -1 == infinite
+#define TCP_MAX_RECONNECTS 2
+#define TCP_MAX_TIMEOUTS -1
+#define TCP_MAX_RESETS 2
+#define TCP_MAX_READ_BYTES 1024*1024*5
 
 enum TcpRunStatus {
     NOOP,
@@ -58,6 +61,11 @@ class TcpRun
     const sockaddr_in* target;
     const CharBuffer* request;
 
+    unsigned int max_reconnects;
+    unsigned int max_timeouts;
+    unsigned int max_resets;
+    unsigned long max_read_bytes;
+
     // a read buffer
     CharBuffer buff;
 
@@ -71,21 +79,24 @@ class TcpRun
     fd_set socket_set;
 
     // counters
+    unsigned int connect_attempts;
     unsigned int timeouts;
-    //unsigned int connect_timeouts;
     unsigned int resets;
     unsigned long bytes_written;
     unsigned long bytes_read;
     unsigned int premature_shutdowns;
 
     public:
-    //TcpRun (const char*, const int, const CharBuffer*);
     TcpRun (sockaddr_in*, const CharBuffer*);
+
+    void set_max_reconnects (unsigned int);
+    void set_max_timeouts (unsigned int);
+    void set_max_read_bytes (unsigned long);
 
     TcpRunStatus go ();
 
+    unsigned int get_connect_attempts();
     unsigned int get_timeouts ();
-    //unsigned int get_connect_timeouts ();
     unsigned int get_resets ();
     unsigned long get_bytes_written ();
     unsigned long get_bytes_read ();
@@ -96,9 +107,9 @@ class TcpRun
     private:
     // mid-level
     TcpRunStatus _go_init ();
-    TcpRunStatus _go_connect (int);
+    TcpRunStatus _go_connect ();
     TcpRunStatus _go_write ();
-    TcpRunStatus _go_read (int);
+    TcpRunStatus _go_read ();
     TcpRunStatus _go_disconnect ();
 
     // low-level

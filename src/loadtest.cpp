@@ -142,8 +142,10 @@ int main (int argc, char **argv)
     t.print_initial_summary();
     t.start_signal_handlers();
     t.init_tests();
+    t.finish_tests_start();
     t.run_tests();
-    t.finish_tests();
+    //t.finish_tests();
+    t.finish_tests_finish();
     t.print_final_summary();
 
     // clean up

@@ -94,22 +94,35 @@ bool resolve_host_name (sockaddr_in* ret, const char* host_name, int port_number
 
 ////////////////////////////////////////////////////////////////////////////////
 
-//TcpRun::TcpRun (const char* host_name, const int port_number, const CharBuffer* request) :
-//    host_name(host_name),
-//    port_number(port_number),
-//    request(request),
-//    timeouts(0),
-//    connect_timeouts(0),
-//    resets(0),
-//    bytes_written(0),
-//    bytes_read(0),
-//    premature_shutdowns(0)
-//{}
-
 TcpRun::TcpRun (sockaddr_in* target, const CharBuffer* request) :
     target(target),
-    request(request)
+    request(request),
+    max_reconnects(TCP_MAX_RECONNECTS),
+    max_timeouts(TCP_MAX_TIMEOUTS),
+    max_resets(TCP_MAX_RESETS),
+    max_read_bytes(TCP_MAX_READ_BYTES),
+    connect_attempts(0),
+    timeouts(0),
+    resets(0),
+    bytes_written(0),
+    bytes_read(0),
+    premature_shutdowns(0)
 {}
+
+void TcpRun::set_max_reconnects (unsigned int max)
+{
+    max_reconnects = max;
+}
+
+void TcpRun::set_max_timeouts (unsigned int max)
+{
+    max_timeouts = max;
+}
+
+void TcpRun::set_max_read_bytes (unsigned long max)
+{
+    max_read_bytes = max;
+}
 
 // low-level wrappers around socket i/o functions
 ////////////////////////////////////////////////////////////////////////////////
@@ -186,6 +199,9 @@ TcpRunStatus TcpRun::do_select ()
 
 TcpRunStatus TcpRun::do_recv ()
 {
+    // return val for recv()
+    int r;
+
     // initialize timeout
     recv_timeout.tv_sec     = TCP_RECV_TIMEOUT_SEC;
     recv_timeout.tv_usec    = TCP_RECV_TIMEOUT_USEC;
@@ -194,7 +210,19 @@ TcpRunStatus TcpRun::do_recv ()
     setsockopt(socket_id, SOL_SOCKET, SO_RCVTIMEO, (void*)&recv_timeout, sizeof(struct timeval));
 
     // grab input from socket
-    int r = recv(socket_id, buff.chars, buff.size, 0);
+    if (max_read_bytes >= 0)
+    {
+        if (bytes_read >= max_read_bytes)
+            r = 0; // done
+        else if (bytes_read + buff.size > max_read_bytes)
+            r = recv(socket_id, buff.chars, max_read_bytes - bytes_read, 0);
+        else
+            r = recv(socket_id, buff.chars, buff.size, 0);
+    }
+    else
+    {
+        r = recv(socket_id, buff.chars, buff.size, 0);
+    }
 
     if (r > 0)
         bytes_read += r;
@@ -254,14 +282,22 @@ TcpRunStatus TcpRun::_go_init ()
 }
 
 // a wrapper around do_connect()
-TcpRunStatus TcpRun::_go_connect (int max_reconnects)
+TcpRunStatus TcpRun::_go_connect ()
 {
     TcpRunStatus connect = NOOP;
 
-    connect = do_connect();
+    while (connect != CONNECT_OK)
+    {
+        connect = do_connect();
 
-    if (connect != CONNECT_OK)
-        warn("go(): do_connect() FAIL: [%d]%s", errno, strerror(errno));
+        connect_attempts++;
+
+        if (connect != CONNECT_OK && max_reconnects >= 0 && connect_attempts > max_reconnects)
+        {
+            warn("go(): do_connect() FAIL: [%d]%s", errno, strerror(errno));
+            break;
+        }
+    }
 
     return connect;
 }
@@ -278,7 +314,7 @@ TcpRunStatus TcpRun::_go_write ()
 }
 
 // preforms select() and recv() until there's no more data and retries on timeouts
-TcpRunStatus TcpRun::_go_read (int max_timeouts)
+TcpRunStatus TcpRun::_go_read ()
 {
     TcpRunStatus result = NOOP;
     TcpRunStatus select = NOOP;
@@ -316,11 +352,18 @@ TcpRunStatus TcpRun::_go_read (int max_timeouts)
                     break;
                 }
             }
-            else if (recv == RECV_FAIL || recv == RECV_RESET)
+            else if (recv == RECV_RESET)
             {
-                if (recv == RECV_RESET)
-                    resets++;
+                resets++;
 
+                if (max_resets >= 0 && resets > max_resets)
+                {
+                    warn("go(): do_recv() RESET: [%d]%s", errno, strerror(errno));
+                    break;
+                }
+            }
+            else if (recv == RECV_FAIL)
+            {
                 warn("go(): do_recv() FAIL: [%d]%s", errno, strerror(errno));
                 break;
             }
@@ -405,11 +448,11 @@ TcpRunStatus TcpRun::go ()
     //if ((init = _go_init()) == GETHOSTBYNAME_OK)
     if ((init = do_socket()) == SOCKET_OK)
     {
-        if ((connect = _go_connect(TCP_MAX_RECONNECTS)) == CONNECT_OK)
+        if ((connect = _go_connect()) == CONNECT_OK)
         {
             if ((write = _go_write()) == WRITE_OK)
             {
-                read = _go_read(TCP_MAX_READ_TIMEOUTS);
+                read = _go_read();
             }
 
             disconnect = _go_disconnect();
@@ -454,15 +497,15 @@ TcpRunStatus TcpRun::go ()
     }
 }
 
+unsigned int TcpRun::get_connect_attempts ()
+{
+    return connect_attempts;
+}
+
 unsigned int TcpRun::get_timeouts ()
 {
     return timeouts;
 }
-
-//unsigned int TcpRun::get_connect_timeouts ()
-//{
-//    return connect_timeouts;
-//}
 
 unsigned int TcpRun::get_resets ()
 {

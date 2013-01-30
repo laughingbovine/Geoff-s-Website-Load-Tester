@@ -1,5 +1,6 @@
 GET / HTTP/1.1
 Host: www.google.com
+User-Agent: Geoff's Load Tester
 Connection: close
 
 

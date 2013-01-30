@@ -43,23 +43,70 @@ void LoadTest::Result::print ()
 ////////////////////////////////////////////////////////////////////////////////
 
 LoadTest::Test::Test () :
-    last_run(NOOP)
+    last_run(NOOP),
+    status(JUST_CREATED)
 {}
+
+TestStatus LoadTest::Test::get_status () const
+{
+    return status;
+}
 
 void LoadTest::Test::start ()
 {
+    status = STARTING;
+
     int ret = pthread_create(&the_thread, NULL, LoadTest::Test::_start_thread, this);
 
     if (ret != 0)
-        error("LoadTest::Test::start(): ERROR creating test thread: [%d:%d]%s", ret, errno, strerror(errno));
+    {
+        status = CREATE_THREAD_FAIL;
+        warn("LoadTest::Test::start(): ERROR creating test thread: [%d:%d]%s", ret, errno, strerror(errno));
+    }
 }
 
 void LoadTest::Test::wait_and_finish ()
 {
+    status = JOINING;
+
     int ret = pthread_join(the_thread, NULL);
 
     if (ret != 0 && ret != 3) // 3 == no such thread
-        error("LoadTest::Test::wait_and_finish(): ERROR joining test thread: [%d]%s", ret, strerror(ret));
+    {
+        status = JOIN_THREAD_FAIL;
+        warn("LoadTest::Test::wait_and_finish(): ERROR joining test thread: [%d]%s", ret, strerror(ret));
+    }
+    else
+    {
+        status = JOINED;
+    }
+}
+
+void LoadTest::Test::print ()
+{
+    printf("Test Input:\n");
+    input->print();
+
+    printf("Test:\n");
+    if (status == JUST_CREATED)
+        printf("JUST_CREATED\n");
+    else if (status == STARTING)
+        printf("STARTING\n");
+    else if (status == CREATE_THREAD_FAIL)
+        printf("CREATE_THREAD_FAIL\n");
+    else if (status == RUNNING)
+        printf("RUNNING\n");
+    else if (status == DONE_RUNNING)
+        printf("DONE_RUNNING\n");
+    else if (status == JOINING)
+        printf("JOINING\n");
+    else if (status == JOIN_THREAD_FAIL)
+        printf("JOIN_THREAD_FAIL\n");
+    else if (status == JOINED)
+        printf("JOINED\n");
+
+    printf("Test Result:\n");
+    result.print();
 }
 
 // this function is thread-friendly
@@ -74,6 +121,8 @@ void* LoadTest::Test::_start_thread (void* me)
 
 void LoadTest::Test::_run ()
 {
+    status = RUNNING;
+
     TcpRun run(input->target, input->request);
     Stopwatch clock;
 
@@ -92,6 +141,7 @@ void LoadTest::Test::_run ()
 
         result.num_sessions++;
         result.num_timeouts            += run.get_timeouts();
+        result.num_resets              += run.get_resets();
         result.num_bytes_written       += run.get_bytes_written();
         result.num_bytes_read          += run.get_bytes_read();
         result.num_premature_shutdowns += run.get_premature_shutdowns();
@@ -108,4 +158,6 @@ void LoadTest::Test::_run ()
         &&
         (input->run_time <= 0 || (unsigned int)result.time < input->run_time)    // time isn't up
     );
+
+    status = DONE_RUNNING;
 }
