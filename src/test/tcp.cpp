@@ -6,7 +6,7 @@ int main (int argc, char** argv)
 {
     CharBuffer request("GET / HTTP/1.0\r\nConnection: close\r\n\r\n");
     sockaddr_in target;
-    TcpRun t(&target, &request);
+    TcpRun t(0, &target, &request);
 
     if (!resolve_host_name(&target, "www.columbia.edu", 80))
     {
@@ -25,6 +25,6 @@ int main (int argc, char** argv)
         printf("failure\n");
     }
 
-    print_trs(trs);
+    printf("%s\n", TcpRunStatusStrings[trs]);
     t.print();
 }

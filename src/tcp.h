@@ -17,44 +17,49 @@
 // -1 == infinite
 #define TCP_MAX_RECONNECTS 2
 #define TCP_MAX_TIMEOUTS -1
-#define TCP_MAX_RESETS 2
+#define TCP_MAX_CONSECUTIVE_TIMEOUTS -1
 #define TCP_MAX_READ_BYTES 1024*1024*5
 
+#define TCP_TCPRUNSTATUS_SIZE 26
+
 enum TcpRunStatus {
-    NOOP,
-    FORCED,
-    MULTI_FAIL,
-    GREAT_SUCCESS,
-    SOCKET_FAIL,
-    SOCKET_OK,
-    GETHOSTBYNAME_FAIL,
-    GETHOSTBYNAME_OK,
-    CONNECT_FAIL,
-    CONNECT_OK,
-    CONNECT_TIMEOUT,
-    WRITE_FAIL,
-    WRITE_OK,
-    SELECT_FAIL,
-    SELECT_TIMEOUT,
-    SELECT_OK,
-    RECV_FAIL,
-    RECV_DONE,
-    RECV_OK,
-    RECV_TIMEOUT,
-    RECV_RESET,
-    SHUTDOWN_FAIL,
-    SHUTDOWN_OK,
-    CLOSE_FAIL,
-    CLOSE_OK
+    NOOP,               // 0
+    FORCED,             // 1
+    MULTI_FAIL,         // 2
+    GREAT_SUCCESS,      // 3
+    WTF,                // 4
+    SOCKET_FAIL,        // 5
+    SOCKET_OK,          // 6
+    GETHOSTBYNAME_FAIL, // 7
+    GETHOSTBYNAME_OK,   // 8
+    CONNECT_FAIL,       // 9
+    CONNECT_OK,         // 10
+    CONNECT_TIMEOUT,    // 11
+    WRITE_FAIL,         // 12
+    WRITE_OK,           // 13
+    SELECT_FAIL,        // 14
+    SELECT_TIMEOUT,     // 15
+    SELECT_OK,          // 16
+    RECV_FAIL,          // 17
+    RECV_DONE,          // 18
+    RECV_OK,            // 19
+    RECV_TIMEOUT,       // 20
+    RECV_RESET,         // 21
+    SHUTDOWN_FAIL,      // 22
+    SHUTDOWN_OK,        // 23
+    CLOSE_FAIL,         // 24
+    CLOSE_OK            // 25
 };
 
-void print_trs (TcpRunStatus trs);
+extern const char* TcpRunStatusStrings [TCP_TCPRUNSTATUS_SIZE];
 
 bool resolve_host_name (sockaddr_in*, const char*, int);
 
 class TcpRun
 {
     private:
+    unsigned int id;
+
     // test input
     //const char* host_name;
     //const int port_number;
@@ -63,7 +68,7 @@ class TcpRun
 
     unsigned int max_reconnects;
     unsigned int max_timeouts;
-    unsigned int max_resets;
+    unsigned int max_consecutive_timeouts;
     unsigned long max_read_bytes;
 
     // a read buffer
@@ -80,24 +85,52 @@ class TcpRun
 
     // counters
     unsigned int connect_attempts;
+    unsigned int connect_successes;
     unsigned int timeouts;
-    unsigned int resets;
+    unsigned int consecutive_timeouts;
     unsigned long bytes_written;
     unsigned long bytes_read;
     unsigned int premature_shutdowns;
 
+    // local variables
+    // no need to allocate these on each function call (potentially called thousands of times), might as well have it all before-hand
+    // "s_" prefix means "status" (return value) of [suffix]()
+    int retval;
+
+    TcpRunStatus s_go;
+
+    TcpRunStatus s_go_init;
+    TcpRunStatus s_go_connect;
+    TcpRunStatus s_go_write;
+    TcpRunStatus s_go_read;
+    TcpRunStatus s_go_disconnect;
+
+    TcpRunStatus s_do_socket;
+    TcpRunStatus s_do_connect;
+    TcpRunStatus s_do_write;
+    TcpRunStatus s_do_select;
+    TcpRunStatus s_do_recv;
+    TcpRunStatus s_do_shutdown;
+    TcpRunStatus s_do_close;
+
+    TcpRunStatus s_premature;
+
+    TcpRunStatus s_do_select_last;  // the *last* status from do_select()
+    TcpRunStatus s_do_recv_last;    // the *last* status from do_recv()
+
     public:
-    TcpRun (sockaddr_in*, const CharBuffer*);
+    TcpRun (unsigned int, sockaddr_in*, const CharBuffer*);
 
     void set_max_reconnects (unsigned int);
     void set_max_timeouts (unsigned int);
+    void set_max_consecutive_timeouts (unsigned int);
     void set_max_read_bytes (unsigned long);
 
     TcpRunStatus go ();
 
     unsigned int get_connect_attempts();
+    unsigned int get_connect_successes();
     unsigned int get_timeouts ();
-    unsigned int get_resets ();
     unsigned long get_bytes_written ();
     unsigned long get_bytes_read ();
     unsigned int get_premature_shutdowns ();
@@ -106,11 +139,11 @@ class TcpRun
 
     private:
     // mid-level
-    TcpRunStatus _go_init ();
-    TcpRunStatus _go_connect ();
-    TcpRunStatus _go_write ();
-    TcpRunStatus _go_read ();
-    TcpRunStatus _go_disconnect ();
+    TcpRunStatus go_init ();
+    TcpRunStatus go_connect ();
+    TcpRunStatus go_write ();
+    TcpRunStatus go_read ();
+    TcpRunStatus go_disconnect ();
 
     // low-level
     TcpRunStatus do_socket ();
@@ -121,6 +154,8 @@ class TcpRun
     TcpRunStatus do_recv ();
     TcpRunStatus do_shutdown ();
     TcpRunStatus do_close ();
+
+    void sanity (const char*);
 };
 
 #endif

@@ -2,7 +2,6 @@
 //#include <unistd.h>
 //#include <limits.h>
 //#include <math.h>
-//#include <signal.h>
 #include <iostream>
 #include <fstream>
 //#include "utils.h"
@@ -136,16 +135,15 @@ int main (int argc, char **argv)
     t.set_ramp_wait(cli_ramp_wait);
 
     for (int i = 0; i < cli_num_input_files; i++)
-        t.add_input(*requests[i]);
+        t.add_input(requests[i]);
 
     // do it!
     t.print_initial_summary();
     t.start_signal_handlers();
     t.init_tests();
-    t.finish_tests_start();
-    t.run_tests();
-    //t.finish_tests();
-    t.finish_tests_finish();
+    t.finish_tests_start();     // start test finisher thread
+    t.run_tests();              // start test threads
+    t.finish_tests_finish();    // join test finisher thread
     t.print_final_summary();
 
     // clean up

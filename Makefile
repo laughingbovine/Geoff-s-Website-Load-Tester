@@ -4,28 +4,31 @@
 # $< 	- the first prerequisite (the first thing after the colon)
 # $^ 	- all prerequisites (the things after the colon)
 
+#compiler = g++ -g -O0
+compiler = g++
+
 all: loadtest tests
 
 ################################################################################
 
 loadtest: obj/utils.o obj/tcp.o obj/test.o obj/tester.o obj/loadtest.o
-	g++ -lpthread -o $@ $^
+	$(compiler) -lpthread -o $@ $^
 
 ################################################################################
 
 tests: utils.test tcp.test test.test tester.test
 
 utils.test: obj/utils.o obj/test/utils.o
-	g++ -o $@ $^
+	$(compiler) -o $@ $^
 
 tcp.test: obj/utils.o obj/tcp.o obj/test/tcp.o
-	g++ -o $@ $^
+	$(compiler) -o $@ $^
 
 test.test: obj/utils.o obj/tcp.o obj/test.o obj/test/test.o
-	g++ -lpthread -o $@ $^
+	$(compiler) -lpthread -o $@ $^
 
 tester.test: obj/utils.o obj/tcp.o obj/test.o obj/tester.o obj/test/tester.o
-	g++ -lpthread -o $@ $^
+	$(compiler) -lpthread -o $@ $^
 
 ################################################################################
 
@@ -42,8 +45,8 @@ cleanx:
 ################################################################################
 
 obj/%.o: src/%.cpp src/%.h
-	g++ -c $< -o $@
+	$(compiler) -c $< -o $@
 
 # and for .cpp's without a corresponding .h:
 obj/%.o: src/%.cpp
-	g++ -c $< -o $@
+	$(compiler) -c $< -o $@

@@ -3,6 +3,7 @@
 .gitignore
 .svnignore
 loadtest
+loadtest_log*
 tcp.test
 utils.test
 test.test

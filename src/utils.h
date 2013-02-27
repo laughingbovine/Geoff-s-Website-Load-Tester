@@ -4,6 +4,7 @@
 #include <iostream>
 #include <sys/time.h>
 #include <errno.h>
+#include <pthread.h>
 
 namespace Global
 {
@@ -12,8 +13,12 @@ namespace Global
 
 using namespace std;
 
-void warn (const char *fmt, ...);
-void error (const char *fmt, ...);
+//void print_stack_trace_and_exit (int sig);
+
+//void warn (const char *fmt, ...);
+//void error (const char *fmt, ...);
+
+void print_pthread_t (pthread_t&);
 
 class Stopwatch
 {
@@ -25,7 +30,7 @@ class Stopwatch
     double lap ();
 };
 
-#define CHARBUFFER_DEFAULT_SIZE 1024
+#define CHARBUFFER_DEFAULT_SIZE 4096
 
 struct CharBuffer
 {

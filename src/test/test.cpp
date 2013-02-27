@@ -15,7 +15,7 @@ int main (int argc, char** argv)
     input.num_sessions = 1;
     input.run_time = 0;
 
-    LoadTest::Test test;
+    LoadTest::Test test(0);
     test.input = &input;
 
     test.start();

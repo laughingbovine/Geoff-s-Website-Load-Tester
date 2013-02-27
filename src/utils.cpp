@@ -4,42 +4,73 @@ bool Global::premature_shutdown = false;
 
 ////////////////////////////////////////////////////////////////////////////////
 
-void warn (const char *fmt, ...)
+//void print_stack_trace_and_exit (int sig)
+//{
+//    void *array[50];
+//    size_t size;
+//
+//    // get void*'s for all entries on the stack
+//    size = backtrace(array, 50);
+//
+//    // print out all the frames to stderr
+//    fprintf(stderr, "Error: signal %d:\n", sig);
+//    backtrace_symbols_fd(array, size, 2);
+//    exit(1);
+//}
+//
+//void warn (const char *fmt, ...)
+//{
+//    int retval;
+//    char* str;
+//
+//    va_list ap;
+//    va_start(ap, fmt);
+//    retval = vasprintf(&str, fmt, ap);
+//    va_end(ap);
+//
+//    if (retval > 0)
+//    {
+//        fprintf(stderr, "%s\n", str);
+//
+//        free(str);
+//    }
+//    else
+//    {
+//        fprintf(stderr, "warn(): sorry... %s", fmt);
+//    }
+//}
+//
+//void error (const char *fmt, ...)
+//{
+//    int retval;
+//    char* str;
+//
+//    va_list ap;
+//    va_start(ap, fmt);
+//    retval = vasprintf(&str, fmt, ap);
+//    va_end(ap);
+//
+//    if (retval > 0)
+//    {
+//        fprintf(stderr, "%s\n", str);
+//
+//        free(str);
+//    }
+//    else
+//    {
+//        fprintf(stderr, "error(): sorry... %s", fmt);
+//    }
+//
+//    exit(1);
+//}
+
+void print_pthread_t (pthread_t& pt)
 {
-    int retval;
-    char* str;
-
-    va_list ap;
-    va_start(ap, fmt);
-    retval = vasprintf(&str, fmt, ap);
-    va_end(ap);
-
-    if (retval > 0)
-    {
-        fprintf(stderr, "%s\n", str);
-
-        free(str);
+    unsigned char *ptc = (unsigned char*)(void*)(&pt);
+    printf("0x");
+    for (size_t i=0; i<sizeof(pt); i++) {
+        printf("%02x", (unsigned)(ptc[i]));
     }
-}
-
-void error (const char *fmt, ...)
-{
-    int retval;
-    char* str;
-
-    va_list ap;
-    va_start(ap, fmt);
-    retval = vasprintf(&str, fmt, ap);
-    va_end(ap);
-
-    if (retval > 0)
-    {
-        fprintf(stderr, "%s\n", str);
-
-        free(str);
-    }
-
-    exit(1);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -107,8 +138,10 @@ CharBuffer::CharBuffer (istream &input) :
             set_size(num_bytes + CHARBUFFER_DEFAULT_SIZE);
     }
 
-    if (input.bad())
-        error("problem reading istream");
+    if (input.bad()) {
+        printf("problem reading istream\n");
+        exit(1);
+    }
 }
 
 CharBuffer::CharBuffer (const CharBuffer& other) :

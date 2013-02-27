@@ -8,7 +8,7 @@ int main (int argc, char** argv)
 
     CharBuffer request("GET / HTTP/1.0\r\nConnection: close\r\n\r\n");
 
-    t.add_input(request);
+    t.add_input(&request);
     t.set_num_tests_per_ramp(1);
     t.set_num_ramps(5);
     t.set_ramp_wait(1);

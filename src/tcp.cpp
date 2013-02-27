@@ -1,63 +1,35 @@
 #include "tcp.h"
 
-////////////////////////////////////////////////////////////////////////////////
+const char* TcpRunStatusStrings [TCP_TCPRUNSTATUS_SIZE] = {
+    "NOOP",
+    "FORCED",
+    "MULTI_FAIL",
+    "GREAT_SUCCESS",
+    "WTF",
+    "SOCKET_FAIL",
+    "SOCKET_OK",
+    "GETHOSTBYNAME_FAIL",
+    "GETHOSTBYNAME_OK",
+    "CONNECT_FAIL",
+    "CONNECT_OK",
+    "CONNECT_TIMEOUT",
+    "WRITE_FAIL",
+    "WRITE_OK",
+    "SELECT_FAIL",
+    "SELECT_TIMEOUT",
+    "SELECT_OK",
+    "RECV_FAIL",
+    "RECV_DONE",
+    "RECV_OK",
+    "RECV_TIMEOUT",
+    "RECV_RESET",
+    "SHUTDOWN_FAIL",
+    "SHUTDOWN_OK",
+    "CLOSE_FAIL",
+    "CLOSE_OK"
+};
 
-void print_trs (TcpRunStatus trs)
-{
-    switch (trs)
-    {
-        case NOOP:
-            printf("NOOP\n"); break;
-        case FORCED:
-            printf("FORCED\n"); break;
-        case MULTI_FAIL:
-            printf("MULTI_FAIL\n"); break;
-        case GREAT_SUCCESS:
-            printf("GREAT_SUCCESS\n"); break;
-        case SOCKET_FAIL:
-            printf("SOCKET_FAIL\n"); break;
-        case SOCKET_OK:
-            printf("SOCKET_OK\n"); break;
-        case GETHOSTBYNAME_FAIL:
-            printf("GETHOSTBYNAME_FAIL\n"); break;
-        case GETHOSTBYNAME_OK:
-            printf("GETHOSTBYNAME_OK\n"); break;
-        case CONNECT_FAIL:
-            printf("CONNECT_FAIL\n"); break;
-        case CONNECT_OK:
-            printf("CONNECT_OK\n"); break;
-        case CONNECT_TIMEOUT:
-            printf("CONNECT_TIMEOUT\n"); break;
-        case WRITE_FAIL:
-            printf("WRITE_FAIL\n"); break;
-        case WRITE_OK:
-            printf("WRITE_OK\n"); break;
-        case SELECT_FAIL:
-            printf("SELECT_FAIL\n"); break;
-        case SELECT_TIMEOUT:
-            printf("SELECT_TIMEOUT\n"); break;
-        case SELECT_OK:
-            printf("SELECT_OK\n"); break;
-        case RECV_FAIL:
-            printf("RECV_FAIL\n"); break;
-        case RECV_DONE:
-            printf("RECV_DONE\n"); break;
-        case RECV_OK:
-            printf("RECV_OK\n"); break;
-        case RECV_TIMEOUT:
-            printf("RECV_TIMEOUT\n"); break;
-        case RECV_RESET:
-            printf("RECV_RESET\n"); break;
-        case SHUTDOWN_FAIL:
-            printf("SHUTDOWN_FAIL\n"); break;
-        case SHUTDOWN_OK:
-            printf("SHUTDOWN_OK\n"); break;
-        case CLOSE_FAIL:
-            printf("CLOSE_FAIL\n"); break;
-        case CLOSE_OK:
-            printf("CLOSE_OK\n"); break;
-    }
-}
+////////////////////////////////////////////////////////////////////////////////
 
 bool resolve_host_name (sockaddr_in* ret, const char* host_name, int port_number)
 {
@@ -65,7 +37,7 @@ bool resolve_host_name (sockaddr_in* ret, const char* host_name, int port_number
 
     if (host == NULL)
     {
-        warn("gethostbyname('%s') FAIL: [%d]%s", host_name, h_errno, hstrerror(h_errno));
+        printf("gethostbyname('%s') FAIL: [%d]%s\n", host_name, h_errno, hstrerror(h_errno));
         return false;
     }
 
@@ -94,19 +66,37 @@ bool resolve_host_name (sockaddr_in* ret, const char* host_name, int port_number
 
 ////////////////////////////////////////////////////////////////////////////////
 
-TcpRun::TcpRun (sockaddr_in* target, const CharBuffer* request) :
+TcpRun::TcpRun (unsigned int id, sockaddr_in* target, const CharBuffer* request) :
+    id(id),
     target(target),
     request(request),
     max_reconnects(TCP_MAX_RECONNECTS),
     max_timeouts(TCP_MAX_TIMEOUTS),
-    max_resets(TCP_MAX_RESETS),
+    max_consecutive_timeouts(TCP_MAX_CONSECUTIVE_TIMEOUTS),
     max_read_bytes(TCP_MAX_READ_BYTES),
     connect_attempts(0),
+    connect_successes(0),
     timeouts(0),
-    resets(0),
+    consecutive_timeouts(0),
     bytes_written(0),
     bytes_read(0),
-    premature_shutdowns(0)
+    premature_shutdowns(0),
+    s_go(NOOP),
+    s_go_init(NOOP),
+    s_go_connect(NOOP),
+    s_go_write(NOOP),
+    s_go_read(NOOP),
+    s_go_disconnect(NOOP),
+    s_do_socket(NOOP),
+    s_do_connect(NOOP),
+    s_do_write(NOOP),
+    s_do_select(NOOP),
+    s_do_recv(NOOP),
+    s_do_shutdown(NOOP),
+    s_do_close(NOOP),
+    s_premature(NOOP),
+    s_do_select_last(NOOP),
+    s_do_recv_last(NOOP)
 {}
 
 void TcpRun::set_max_reconnects (unsigned int max)
@@ -117,6 +107,11 @@ void TcpRun::set_max_reconnects (unsigned int max)
 void TcpRun::set_max_timeouts (unsigned int max)
 {
     max_timeouts = max;
+}
+
+void TcpRun::set_max_consecutive_timeouts (unsigned int max)
+{
+    max_consecutive_timeouts = max;
 }
 
 void TcpRun::set_max_read_bytes (unsigned long max)
@@ -168,12 +163,12 @@ TcpRunStatus TcpRun::do_connect ()
 
 TcpRunStatus TcpRun::do_write ()
 {
-    int r = write(socket_id, request->chars, request->size);
+    retval = write(socket_id, request->chars, request->size);
 
-    if (r > 0)
-        bytes_written += r;
+    if (retval > 0)
+        bytes_written += retval;
 
-    return r == request->size ? WRITE_OK : WRITE_FAIL;
+    return retval == request->size ? WRITE_OK : WRITE_FAIL;
 }
 
 TcpRunStatus TcpRun::do_select ()
@@ -187,11 +182,11 @@ TcpRunStatus TcpRun::do_select ()
     FD_ZERO(&socket_set); // reset set
     FD_SET(socket_id, &socket_set); // set our fd (socket)
 
-    int r = select(FD_SETSIZE, &socket_set, NULL, NULL, &select_timeout);
+    retval = select(FD_SETSIZE, &socket_set, NULL, NULL, &select_timeout);
 
-    if (r > 0)
+    if (retval > 0)
         return SELECT_OK;
-    else if (r == 0)
+    else if (retval == 0)
         return SELECT_TIMEOUT;
     else
         return SELECT_FAIL;
@@ -199,9 +194,6 @@ TcpRunStatus TcpRun::do_select ()
 
 TcpRunStatus TcpRun::do_recv ()
 {
-    // return val for recv()
-    int r;
-
     // initialize timeout
     recv_timeout.tv_sec     = TCP_RECV_TIMEOUT_SEC;
     recv_timeout.tv_usec    = TCP_RECV_TIMEOUT_USEC;
@@ -213,23 +205,23 @@ TcpRunStatus TcpRun::do_recv ()
     if (max_read_bytes >= 0)
     {
         if (bytes_read >= max_read_bytes)
-            r = 0; // done
-        else if (bytes_read + buff.size > max_read_bytes)
-            r = recv(socket_id, buff.chars, max_read_bytes - bytes_read, 0);
+            retval = 0; // done
+        else if (buff.size > (max_read_bytes - bytes_read))
+            retval = recv(socket_id, buff.chars, max_read_bytes - bytes_read, 0);
         else
-            r = recv(socket_id, buff.chars, buff.size, 0);
+            retval = recv(socket_id, buff.chars, buff.size, 0);
     }
     else
     {
-        r = recv(socket_id, buff.chars, buff.size, 0);
+        retval = recv(socket_id, buff.chars, buff.size, 0);
     }
 
-    if (r > 0)
-        bytes_read += r;
+    if (retval > 0)
+        bytes_read += retval;
 
-    if (r > 0)
+    if (retval > 0)
         return RECV_OK;
-    else if (r == 0)
+    else if (retval == 0)
         return RECV_DONE;
     else if (errno == 60)
         return RECV_TIMEOUT;
@@ -241,18 +233,13 @@ TcpRunStatus TcpRun::do_recv ()
 
 TcpRunStatus TcpRun::do_shutdown ()
 {
-    if (shutdown(socket_id, SHUT_RDWR) == 0)
-    {
+    if (shutdown(socket_id, SHUT_RDWR) == 0) {
         return SHUTDOWN_OK;
-    }
-    else
-    {
-        if (errno == 57) // socket already shut down (remotely?)
-        {
+    } else {
+        if (errno == 57) {
+            // socket already shut down (remotely?)
             return SHUTDOWN_OK;
-        }
-        else
-        {
+        } else {
             return SHUTDOWN_FAIL;
         }
     }
@@ -268,124 +255,143 @@ TcpRunStatus TcpRun::do_close ()
 ////////////////////////////////////////////////////////////////////////////////
 
 // a wrapper around do_socket()
-TcpRunStatus TcpRun::_go_init ()
+TcpRunStatus TcpRun::go_init ()
 {
-    TcpRunStatus socket = NOOP;
-    //TcpRunStatus gethostbyname = NOOP;
+    s_do_socket = NOOP;
 
-    socket = do_socket();
+    s_do_socket = do_socket();
 
-    if (socket != SOCKET_OK)
-        warn("go(): do_socket() FAIL: [%d]%s", errno, strerror(errno));
+    sanity("go_init");
 
-    return socket;
+    //if (s_do_socket != SOCKET_OK)
+    //    printf("[%5u] TcpRun::go_init(): do_socket() FAIL: [%d]%s\n", id, errno, strerror(errno));
+
+    return s_do_socket;
 }
 
 // a wrapper around do_connect()
-TcpRunStatus TcpRun::_go_connect ()
+TcpRunStatus TcpRun::go_connect ()
 {
-    TcpRunStatus connect = NOOP;
+    s_do_connect = NOOP;
 
-    while (connect != CONNECT_OK)
+    while (true)
     {
-        connect = do_connect();
-
         connect_attempts++;
+        s_do_connect = do_connect();
 
-        if (connect != CONNECT_OK && max_reconnects >= 0 && connect_attempts > max_reconnects)
-        {
-            warn("go(): do_connect() FAIL: [%d]%s", errno, strerror(errno));
+        sanity("go_connect");
+
+        if (s_do_connect != CONNECT_OK && max_reconnects >= 0 && connect_attempts > max_reconnects) {
+            //printf("[%5u] TcpRun::go_connect(): do_connect() FAIL: [%d]%s\n", id, errno, strerror(errno));
+            break;
+        } else if (s_do_connect == CONNECT_OK) {
+            connect_successes++;
             break;
         }
     }
 
-    return connect;
+    return s_do_connect;
 }
 
 // simple wrapper around do_write()
-TcpRunStatus TcpRun::_go_write ()
+TcpRunStatus TcpRun::go_write ()
 {
-    TcpRunStatus write = do_write();
+    s_do_write = NOOP;
 
-    if (write != WRITE_OK)
-        warn("go(): do_write() FAIL: [%d]%s", errno, strerror(errno));
+    s_do_write = do_write();
 
-    return write;
+    sanity("go_write");
+
+    //if (s_do_write != WRITE_OK) {
+    //    printf("[%5u] TcpRun::go_write(): do_write() FAIL: [%d]%s\n", id, errno, strerror(errno));
+    //}
+
+    return s_do_write;
 }
 
 // preforms select() and recv() until there's no more data and retries on timeouts
-TcpRunStatus TcpRun::_go_read ()
+TcpRunStatus TcpRun::go_read ()
 {
-    TcpRunStatus result = NOOP;
-    TcpRunStatus select = NOOP;
-    TcpRunStatus recv   = NOOP;
+    s_premature         = NOOP;
+    s_do_select         = NOOP;
+    s_do_recv           = NOOP;
 
-    while (recv != RECV_DONE)
-    {
-        if (Global::premature_shutdown)
-        {
+    s_do_select_last    = NOOP;
+    s_do_recv_last      = NOOP;
+
+    while (s_do_recv != RECV_DONE) {
+        s_do_select_last = s_do_select;
+        s_do_recv_last = s_do_recv;
+
+        if (Global::premature_shutdown) {
             premature_shutdowns++;
-            result = FORCED;
+            s_premature = FORCED;
+            //printf("[%5u] TcpRun::go_read(): premature_shutdown Before select\n", id);
             break;
         }
 
-        select = do_select();
+        s_do_select = do_select();
 
-        if (Global::premature_shutdown)
-        {
+        if (Global::premature_shutdown) {
             premature_shutdowns++;
-            result = FORCED;
+            s_premature = FORCED;
+            //printf("[%5u] TcpRun::go_read(): premature_shutdown After select\n", id);
             break;
         }
 
-        if (select == SELECT_OK)
-        {
-            recv = do_recv();
+        if (s_do_select == SELECT_OK) {
+            s_do_recv = do_recv();
 
-            if (recv == RECV_TIMEOUT)
-            {
+            if (s_do_recv == RECV_TIMEOUT) {
                 timeouts++;
 
-                if (max_timeouts >= 0 && timeouts > max_timeouts)
-                {
-                    warn("go(): do_recv() FAIL: too many timeouts");
-                    break;
+                if (s_do_recv_last == RECV_TIMEOUT) {
+                    consecutive_timeouts++;
+                } else {
+                    consecutive_timeouts = 0;
                 }
-            }
-            else if (recv == RECV_RESET)
-            {
-                resets++;
 
-                if (max_resets >= 0 && resets > max_resets)
-                {
-                    warn("go(): do_recv() RESET: [%d]%s", errno, strerror(errno));
+                if (max_consecutive_timeouts >= 0 && consecutive_timeouts > max_consecutive_timeouts) {
+                    //printf("[%5u] TcpRun::go_read(): do_recv() FAIL: too many consecutive timeouts\n", id);
                     break;
                 }
-            }
-            else if (recv == RECV_FAIL)
-            {
-                warn("go(): do_recv() FAIL: [%d]%s", errno, strerror(errno));
+
+                if (max_timeouts >= 0 && timeouts > max_timeouts) {
+                    //printf("[%5u] TcpRun::go_read(): do_recv() FAIL: too many timeouts\n", id);
+                    break;
+                }
+            } else if (s_do_recv == RECV_RESET) {
+                //printf("[%5u] TcpRun::go_read(): do_recv() RESET: [%d]%s\n", id, errno, strerror(errno));
+                break;
+            } else if (s_do_recv == RECV_FAIL) {
+                //printf("[%5u] TcpRun::go_read(): do_recv() FAIL: [%d]%s\n", id, errno, strerror(errno));
                 break;
             }
-        }
-        else if (select == SELECT_TIMEOUT)
-        {
+        } else if (s_do_select == SELECT_TIMEOUT) {
             timeouts++;
 
-            if (max_timeouts >= 0 && timeouts > max_timeouts)
-            {
-                warn("go(): do_select() FAIL: too many timeouts");
+            if (s_do_select_last == SELECT_TIMEOUT) {
+                consecutive_timeouts++;
+            } else {
+                consecutive_timeouts = 0;
+            }
+
+            if (max_consecutive_timeouts >= 0 && consecutive_timeouts > max_consecutive_timeouts) {
+                //printf("[%5u] TcpRun::go_read(): do_select() FAIL: too many consecutive timeouts\n", id);
                 break;
             }
-        }
-        else if (select == SELECT_FAIL)
-        {
-            warn("go(): do_select() FAIL: [%d]%s", errno, strerror(errno));
+
+            if (max_timeouts >= 0 && timeouts > max_timeouts) {
+                //printf("[%5u] TcpRun::go_read(): do_select() FAIL: too many timeouts\n", id);
+                break;
+            }
+        } else if (s_do_select == SELECT_FAIL) {
+            //printf("[%5u] TcpRun::go_read(): do_select() FAIL: [%d]%s\n", id, errno, strerror(errno));
             break;
         }
     }
 
-    return result == NOOP ? (select == SELECT_OK ? recv : select) : result;
+    return s_premature == NOOP ? (s_do_select == SELECT_OK ? s_do_recv : s_do_select) : s_premature;
 
     // so... possible return values are:
     //
@@ -402,23 +408,25 @@ TcpRunStatus TcpRun::_go_read ()
     // RECV_DONE        successful read
 }
 
-// the counterpart to a successful _go_connect()
-TcpRunStatus TcpRun::_go_disconnect ()
+// the counterpart to a successful go_connect()
+TcpRunStatus TcpRun::go_disconnect ()
 {
-    TcpRunStatus shutdown = NOOP;
-    TcpRunStatus close = NOOP;
+    s_do_shutdown   = NOOP;
+    s_do_close      = NOOP;
 
-    shutdown = do_shutdown();
+    s_do_shutdown = do_shutdown();
 
-    if (shutdown == SHUTDOWN_FAIL)
-        warn("go(): do_shutdown() FAIL: [%d]%s", errno, strerror(errno));
+    //if (s_do_shutdown == SHUTDOWN_FAIL) {
+    //    printf("[%5u] TcpRun::go_disconnect(): do_shutdown() FAIL: [%d]%s\n", id, errno, strerror(errno));
+    //}
 
-    close = do_close();
+    s_do_close = do_close();
 
-    if (close == CLOSE_FAIL)
-        warn("go(): do_close() FAIL: [%d]%s", errno, strerror(errno));
+    //if (s_do_close == CLOSE_FAIL) {
+    //    printf("[%5u] TcpRun::go_disconnect(): do_close() FAIL: [%d]%s\n", id, errno, strerror(errno));
+    //}
 
-    return shutdown == SHUTDOWN_OK ? close : shutdown;
+    return s_do_shutdown == SHUTDOWN_OK ? s_do_close : s_do_shutdown;
 
     // so... possible return values are:
     //
@@ -433,67 +441,73 @@ TcpRunStatus TcpRun::_go_disconnect ()
 
 TcpRunStatus TcpRun::go ()
 {
-    TcpRunStatus init = NOOP;
-    TcpRunStatus connect = NOOP;
-    TcpRunStatus write = NOOP;
-    TcpRunStatus read = NOOP;
-    TcpRunStatus disconnect = NOOP;
+    s_go            = NOOP;
+    s_go_init       = NOOP;
+    s_go_connect    = NOOP;
+    s_go_write      = NOOP;
+    s_go_read       = NOOP;
+    s_go_disconnect = NOOP;
 
-    timeouts            = 0;
-    resets              = 0;
-    bytes_written       = 0;
-    bytes_read          = 0;
-    premature_shutdowns = 0;
+    connect_attempts        = 0;
+    connect_successes       = 0;
+    timeouts                = 0;
+    consecutive_timeouts    = 0;
+    bytes_written           = 0;
+    bytes_read              = 0;
+    premature_shutdowns     = 0;
 
-    //if ((init = _go_init()) == GETHOSTBYNAME_OK)
-    if ((init = do_socket()) == SOCKET_OK)
-    {
-        if ((connect = _go_connect()) == CONNECT_OK)
-        {
-            if ((write = _go_write()) == WRITE_OK)
-            {
-                read = _go_read();
+    sanity("go 1");
+
+    // do the run
+    s_go_init = go_init();
+    if (s_go_init == SOCKET_OK) {
+        s_go_connect = go_connect();
+        if (s_go_connect == CONNECT_OK) {
+            s_go_write = go_write();
+            if (s_go_write == WRITE_OK) {
+                s_go_read = go_read();
             }
-
-            disconnect = _go_disconnect();
+            s_go_disconnect = go_disconnect();
         }
     }
 
-    // this is the return "statement"
-    if (init == SOCKET_OK)
-    {
-        if (connect == CONNECT_OK)
-        {
-            if (disconnect == CLOSE_OK)
-            {
-                if (write == WRITE_OK)
-                {
-                    if (read == RECV_DONE)
-                        return GREAT_SUCCESS;
-                    else
-                        return read;
+    sanity("go 2");
+
+    // come up with the return value
+    if (s_go_init == SOCKET_OK) {
+        if (s_go_connect == CONNECT_OK) {
+            if (s_go_disconnect == CLOSE_OK) {
+                if (s_go_write == WRITE_OK) {
+                    if (s_go_read == RECV_DONE) {
+                        s_go = GREAT_SUCCESS;
+                    } else {
+                        s_go = s_go_read;
+                    }
+                } else {
+                    s_go = s_go_write;
                 }
-                else
-                {
-                    return write;
+            } else {
+                if (s_go_write == WRITE_OK && s_go_read == RECV_DONE) {
+                    s_go = s_go_disconnect;
+                } else {
+                    s_go = MULTI_FAIL;
                 }
             }
-            else
-            {
-                if (write == WRITE_OK && read == RECV_DONE)
-                    return disconnect;
-                else
-                    return MULTI_FAIL;
-            }
+        } else {
+            s_go = s_go_connect;
         }
-        else
-        {
-            return connect;
-        }
+    } else {
+        s_go = s_go_init;
     }
-    else
-    {
-        return init;
+
+    sanity("go 3");
+
+    // check for insanity
+    if (s_go < 0 || s_go >= TCP_TCPRUNSTATUS_SIZE) { // TODO: remove after we figure out this SIGSEGV
+        //printf("[%5u] TcpRun::go(): WTF - g:%12d i:%12d c:%12d w:%12d r:%12d d:%12d\n", id, s_go, s_go_init, s_go_connect, s_go_write, s_go_read, s_go_disconnect);
+        return WTF;
+    } else {
+        return s_go;
     }
 }
 
@@ -502,14 +516,14 @@ unsigned int TcpRun::get_connect_attempts ()
     return connect_attempts;
 }
 
+unsigned int TcpRun::get_connect_successes ()
+{
+    return connect_successes;
+}
+
 unsigned int TcpRun::get_timeouts ()
 {
     return timeouts;
-}
-
-unsigned int TcpRun::get_resets ()
-{
-    return resets;
 }
 
 unsigned long TcpRun::get_bytes_written ()
@@ -530,4 +544,70 @@ unsigned int TcpRun::get_premature_shutdowns ()
 void TcpRun::print ()
 {
     printf("%s", request->chars);
+}
+
+void TcpRun::sanity (const char* label)
+{
+    bool sane = true;
+
+    if (s_go < 0 || s_go >= TCP_TCPRUNSTATUS_SIZE
+        || s_go_init < 0 || s_go_init >= TCP_TCPRUNSTATUS_SIZE
+        || s_go_connect < 0 || s_go_connect >= TCP_TCPRUNSTATUS_SIZE
+        || s_go_write < 0 || s_go_write >= TCP_TCPRUNSTATUS_SIZE
+        || s_go_read < 0 || s_go_read >= TCP_TCPRUNSTATUS_SIZE
+        || s_go_disconnect < 0 || s_go_disconnect >= TCP_TCPRUNSTATUS_SIZE
+        || s_do_socket < 0 || s_do_socket >= TCP_TCPRUNSTATUS_SIZE
+        || s_do_connect < 0 || s_do_connect >= TCP_TCPRUNSTATUS_SIZE
+        || s_do_write < 0 || s_do_write >= TCP_TCPRUNSTATUS_SIZE
+        || s_do_select < 0 || s_do_select >= TCP_TCPRUNSTATUS_SIZE
+        || s_do_recv < 0 || s_do_recv >= TCP_TCPRUNSTATUS_SIZE
+        || s_do_shutdown < 0 || s_do_shutdown >= TCP_TCPRUNSTATUS_SIZE
+        || s_do_close < 0 || s_do_close >= TCP_TCPRUNSTATUS_SIZE
+        || s_premature < 0 || s_premature >= TCP_TCPRUNSTATUS_SIZE
+        || s_do_select_last < 0 || s_do_select_last >= TCP_TCPRUNSTATUS_SIZE
+        || s_do_recv_last < 0 || s_do_recv_last >= TCP_TCPRUNSTATUS_SIZE
+    ) {
+        sane = false;
+    }
+
+    if (!sane) {
+        printf("[%5u] %10s g:%11d gi:%11d gc:%11d gw:%11d gr:%11d gd:%11d ds:%11d dc:%11d dw:%11d ds:%11d dr:%11d ds:%11d dc:%11d p:%11d dsl:%11d drl:%11d\n", id, label, s_go, s_go_init, s_go_connect, s_go_write, s_go_read, s_go_disconnect, s_do_socket, s_do_connect, s_do_write, s_do_select, s_do_recv, s_do_shutdown, s_do_close, s_premature, s_do_select_last, s_do_recv_last);
+
+        //printf("[%5u] TcpRun::sanity(): WTF - %s ", id, label);
+
+        //if (s_go < 0 || s_go >= TCP_TCPRUNSTATUS_SIZE)
+        //    printf("s_go:%d ", s_go);
+        //if (s_go_init < 0 || s_go_init >= TCP_TCPRUNSTATUS_SIZE)
+        //    printf("s_go_init:%d ", s_go_init);
+        //if (s_go_connect < 0 || s_go_connect >= TCP_TCPRUNSTATUS_SIZE)
+        //    printf("s_go_connect:%d ", s_go_connect);
+        //if (s_go_write < 0 || s_go_write >= TCP_TCPRUNSTATUS_SIZE)
+        //    printf("s_go_write:%d ", s_go_write);
+        //if (s_go_read < 0 || s_go_read >= TCP_TCPRUNSTATUS_SIZE)
+        //    printf("s_go_read:%d ", s_go_read);
+        //if (s_go_disconnect < 0 || s_go_disconnect >= TCP_TCPRUNSTATUS_SIZE)
+        //    printf("s_go_disconnect:%d ", s_go_disconnect);
+        //if (s_do_socket < 0 || s_do_socket >= TCP_TCPRUNSTATUS_SIZE)
+        //    printf("s_do_socket:%d ", s_do_socket);
+        //if (s_do_connect < 0 || s_do_connect >= TCP_TCPRUNSTATUS_SIZE)
+        //    printf("s_do_connect:%d ", s_do_connect);
+        //if (s_do_write < 0 || s_do_write >= TCP_TCPRUNSTATUS_SIZE)
+        //    printf("s_do_write:%d ", s_do_write);
+        //if (s_do_select < 0 || s_do_select >= TCP_TCPRUNSTATUS_SIZE)
+        //    printf("s_do_select:%d ", s_do_select);
+        //if (s_do_recv < 0 || s_do_recv >= TCP_TCPRUNSTATUS_SIZE)
+        //    printf("s_do_recv:%d ", s_do_recv);
+        //if (s_do_shutdown < 0 || s_do_shutdown >= TCP_TCPRUNSTATUS_SIZE)
+        //    printf("s_do_shutdown:%d ", s_do_shutdown);
+        //if (s_do_close < 0 || s_do_close >= TCP_TCPRUNSTATUS_SIZE)
+        //    printf("s_do_close:%d ", s_do_close);
+        //if (s_premature < 0 || s_premature >= TCP_TCPRUNSTATUS_SIZE)
+        //    printf("s_premature:%d ", s_premature);
+        //if (s_do_select_last < 0 || s_do_select_last >= TCP_TCPRUNSTATUS_SIZE)
+        //    printf("s_do_select_last:%d ", s_do_select_last);
+        //if (s_do_recv_last < 0 || s_do_recv_last >= TCP_TCPRUNSTATUS_SIZE)
+        //    printf("s_do_recv_last:%d ", s_do_recv_last);
+
+        //printf("\n");
+    }
 }
