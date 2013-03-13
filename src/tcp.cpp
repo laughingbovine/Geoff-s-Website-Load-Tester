@@ -17,6 +17,7 @@ const char* TcpRunStatusStrings [TCP_TCPRUNSTATUS_SIZE] = {
     "WRITE_OK",
     "SELECT_FAIL",
     "SELECT_TIMEOUT",
+    "SELECT_OOB",
     "SELECT_OK",
     "RECV_FAIL",
     "RECV_DONE",
@@ -67,6 +68,7 @@ bool resolve_host_name (sockaddr_in* ret, const char* host_name, int port_number
 ////////////////////////////////////////////////////////////////////////////////
 
 TcpRun::TcpRun (unsigned int id, sockaddr_in* target, const CharBuffer* request) :
+    buff(1024*64),
     id(id),
     target(target),
     request(request),
@@ -179,21 +181,35 @@ TcpRunStatus TcpRun::do_select ()
 
     // select() uses the fd_set struct to manage select()ing multiple file descriptors
     // unfortunately we have to use this even though we just want to check on the one
-    FD_ZERO(&socket_set); // reset set
-    FD_SET(socket_id, &socket_set); // set our fd (socket)
+    // we should check for the presence of OOB data as well
 
-    retval = select(FD_SETSIZE, &socket_set, NULL, NULL, &select_timeout);
+    // reset socket sets
+    FD_ZERO(&socket_set_read);
+    FD_ZERO(&socket_set_except);
+    FD_SET(socket_id, &socket_set_read);
+    FD_SET(socket_id, &socket_set_except);
 
-    if (retval > 0)
-        return SELECT_OK;
-    else if (retval == 0)
+    retval = select(FD_SETSIZE, &socket_set_read, NULL, &socket_set_except, &select_timeout);
+
+    if (retval > 0) {
+        if (FD_ISSET(socket_id, &socket_set_except)) {
+            return SELECT_OOB;
+        } else {
+            return SELECT_OK;
+        }
+    } else if (retval == 0) {
         return SELECT_TIMEOUT;
-    else
+    } else {
         return SELECT_FAIL;
+    }
 }
 
-TcpRunStatus TcpRun::do_recv ()
+TcpRunStatus TcpRun::do_recv (bool oob)
 {
+    // reading out-of-band data?
+    int flags = 0;
+    if (oob) { flags = MSG_OOB; }
+
     // initialize timeout
     recv_timeout.tv_sec     = TCP_RECV_TIMEOUT_SEC;
     recv_timeout.tv_usec    = TCP_RECV_TIMEOUT_USEC;
@@ -201,29 +217,37 @@ TcpRunStatus TcpRun::do_recv ()
     // set timeout on socket
     setsockopt(socket_id, SOL_SOCKET, SO_RCVTIMEO, (void*)&recv_timeout, sizeof(struct timeval));
 
-    // grab input from socket
-    if (max_read_bytes >= 0)
+    while (true)
     {
-        if (bytes_read >= max_read_bytes)
-            retval = 0; // done
-        else if (buff.size > (max_read_bytes - bytes_read))
-            retval = recv(socket_id, buff.chars, max_read_bytes - bytes_read, 0);
+        // grab input from socket
+        if (max_read_bytes >= 0)
+        {
+            if (bytes_read >= max_read_bytes)
+                retval = 0; // done
+            else if (buff.size > (max_read_bytes - bytes_read))
+                retval = recv(socket_id, buff.chars, max_read_bytes - bytes_read, flags);
+            else
+                retval = recv(socket_id, buff.chars, buff.size, flags);
+        }
         else
-            retval = recv(socket_id, buff.chars, buff.size, 0);
-    }
-    else
-    {
-        retval = recv(socket_id, buff.chars, buff.size, 0);
-    }
+        {
+            retval = recv(socket_id, buff.chars, buff.size, flags);
+        }
 
-    if (retval > 0)
-        bytes_read += retval;
+        if (oob)
+            printf("[%5u] TcpRun::do_recv(): OOB = %d\n", id, retval);
+
+        if (retval > 0)
+            bytes_read += retval;
+        else
+            break;
+    }
 
     if (retval > 0)
         return RECV_OK;
     else if (retval == 0)
         return RECV_DONE;
-    else if (errno == 60)
+    else if (errno == 35 || errno == 60)
         return RECV_TIMEOUT;
     else if (errno == 54)
         return RECV_RESET;
@@ -313,14 +337,92 @@ TcpRunStatus TcpRun::go_write ()
 TcpRunStatus TcpRun::go_read ()
 {
     s_premature         = NOOP;
-    s_do_select         = NOOP;
+//    s_do_select         = NOOP;
     s_do_recv           = NOOP;
 
-    s_do_select_last    = NOOP;
+//    s_do_select_last    = NOOP;
     s_do_recv_last      = NOOP;
 
+//    while (s_do_recv != RECV_DONE) {
+//        s_do_select_last = s_do_select;
+//        s_do_recv_last = s_do_recv;
+//
+//        if (Global::premature_shutdown) {
+//            premature_shutdowns++;
+//            s_premature = FORCED;
+//            //printf("[%5u] TcpRun::go_read(): premature_shutdown Before select\n", id);
+//            break;
+//        }
+//
+//        s_do_select = do_select();
+//
+//        if (Global::premature_shutdown) {
+//            premature_shutdowns++;
+//            s_premature = FORCED;
+//            //printf("[%5u] TcpRun::go_read(): premature_shutdown After select\n", id);
+//            break;
+//        }
+//
+//        /* OOB data doesn't really matter to us since we're not processing anything */
+//        if (s_do_select == SELECT_OK || s_do_select == SELECT_OOB) {
+//            if (s_do_select == SELECT_OOB) {
+//                s_do_recv = do_recv(true);
+//            } else {
+//                s_do_recv = do_recv(false);
+//            }
+//
+//            if (s_do_recv == RECV_TIMEOUT) {
+//                timeouts++;
+//
+//                if (s_do_recv_last == RECV_TIMEOUT) {
+//                    consecutive_timeouts++;
+//                } else {
+//                    consecutive_timeouts = 0;
+//                }
+//
+//                if (max_consecutive_timeouts >= 0 && consecutive_timeouts > max_consecutive_timeouts) {
+//                    printf("[%5u] TcpRun::go_read(): do_recv() FAIL: too many consecutive RECV timeouts\n", id);
+//                    break;
+//                }
+//
+//                if (max_timeouts >= 0 && timeouts > max_timeouts) {
+//                    //printf("[%5u] TcpRun::go_read(): do_recv() FAIL: too many timeouts\n", id);
+//                    break;
+//                }
+//            } else if (s_do_recv == RECV_RESET) {
+//                //printf("[%5u] TcpRun::go_read(): do_recv() RESET: [%d]%s\n", id, errno, strerror(errno));
+//                break;
+//            } else if (s_do_recv == RECV_FAIL) {
+//                //printf("[%5u] TcpRun::go_read(): do_recv() FAIL: [%d]%s\n", id, errno, strerror(errno));
+//                break;
+//            }
+//        } else if (s_do_select == SELECT_TIMEOUT) {
+//            timeouts++;
+//
+//            if (s_do_select_last == SELECT_TIMEOUT) {
+//                consecutive_timeouts++;
+//            } else {
+//                consecutive_timeouts = 0;
+//            }
+//
+//            if (max_consecutive_timeouts >= 0 && consecutive_timeouts > max_consecutive_timeouts) {
+//                //printf("[%5u] TcpRun::go_read(): do_select() FAIL: too many consecutive SELECT timeouts\n", id);
+//                break;
+//            }
+//
+//            if (max_timeouts >= 0 && timeouts > max_timeouts) {
+//                //printf("[%5u] TcpRun::go_read(): do_select() FAIL: too many timeouts\n", id);
+//                break;
+//            }
+//        } else if (s_do_select == SELECT_FAIL) {
+//            //printf("[%5u] TcpRun::go_read(): do_select() FAIL: [%d]%s\n", id, errno, strerror(errno));
+//            break;
+//        }
+//    }
+//
+//    return s_premature == NOOP ? (s_do_select == SELECT_OK ? s_do_recv : s_do_select) : s_premature;
+
     while (s_do_recv != RECV_DONE) {
-        s_do_select_last = s_do_select;
         s_do_recv_last = s_do_recv;
 
         if (Global::premature_shutdown) {
@@ -330,68 +432,33 @@ TcpRunStatus TcpRun::go_read ()
             break;
         }
 
-        s_do_select = do_select();
+        s_do_recv = do_recv(false);
 
-        if (Global::premature_shutdown) {
-            premature_shutdowns++;
-            s_premature = FORCED;
-            //printf("[%5u] TcpRun::go_read(): premature_shutdown After select\n", id);
-            break;
-        }
-
-        if (s_do_select == SELECT_OK) {
-            s_do_recv = do_recv();
-
-            if (s_do_recv == RECV_TIMEOUT) {
-                timeouts++;
-
-                if (s_do_recv_last == RECV_TIMEOUT) {
-                    consecutive_timeouts++;
-                } else {
-                    consecutive_timeouts = 0;
-                }
-
-                if (max_consecutive_timeouts >= 0 && consecutive_timeouts > max_consecutive_timeouts) {
-                    //printf("[%5u] TcpRun::go_read(): do_recv() FAIL: too many consecutive timeouts\n", id);
-                    break;
-                }
-
-                if (max_timeouts >= 0 && timeouts > max_timeouts) {
-                    //printf("[%5u] TcpRun::go_read(): do_recv() FAIL: too many timeouts\n", id);
-                    break;
-                }
-            } else if (s_do_recv == RECV_RESET) {
-                //printf("[%5u] TcpRun::go_read(): do_recv() RESET: [%d]%s\n", id, errno, strerror(errno));
-                break;
-            } else if (s_do_recv == RECV_FAIL) {
-                //printf("[%5u] TcpRun::go_read(): do_recv() FAIL: [%d]%s\n", id, errno, strerror(errno));
-                break;
-            }
-        } else if (s_do_select == SELECT_TIMEOUT) {
+        if (s_do_recv == RECV_TIMEOUT) {
             timeouts++;
 
-            if (s_do_select_last == SELECT_TIMEOUT) {
+            if (s_do_recv_last == RECV_TIMEOUT) {
                 consecutive_timeouts++;
             } else {
                 consecutive_timeouts = 0;
             }
 
             if (max_consecutive_timeouts >= 0 && consecutive_timeouts > max_consecutive_timeouts) {
-                //printf("[%5u] TcpRun::go_read(): do_select() FAIL: too many consecutive timeouts\n", id);
                 break;
             }
 
             if (max_timeouts >= 0 && timeouts > max_timeouts) {
-                //printf("[%5u] TcpRun::go_read(): do_select() FAIL: too many timeouts\n", id);
                 break;
             }
-        } else if (s_do_select == SELECT_FAIL) {
-            //printf("[%5u] TcpRun::go_read(): do_select() FAIL: [%d]%s\n", id, errno, strerror(errno));
+        } else if (s_do_recv == RECV_RESET) {
+            break;
+        } else if (s_do_recv == RECV_FAIL) {
+            printf("[%5u] TcpRun::go_read(): do_recv() FAIL: [%d]%s\n", id, errno, strerror(errno));
             break;
         }
     }
 
-    return s_premature == NOOP ? (s_do_select == SELECT_OK ? s_do_recv : s_do_select) : s_premature;
+    return s_premature == NOOP ? s_do_recv : s_premature;
 
     // so... possible return values are:
     //

@@ -165,13 +165,13 @@ void LoadTest::Tester::run_tests ()
             tests[(j*num_tests_per_ramp)+i]->start();
 
             if (Global::premature_shutdown) {
-                printf("[     ] LoadTest::Tester::run_tests(): premature_shutdown Mid test ramp\n");
+                //printf("[     ] LoadTest::Tester::run_tests(): premature_shutdown Mid test ramp\n");
                 break;
             }
         }
 
         if (Global::premature_shutdown) {
-            printf("[     ] LoadTest::Tester::run_tests(): premature_shutdown After test ramp\n");
+            //printf("[     ] LoadTest::Tester::run_tests(): premature_shutdown After test ramp\n");
             break;
         }
 
@@ -179,7 +179,7 @@ void LoadTest::Tester::run_tests ()
             sleep(ramp_wait);
 
         if (Global::premature_shutdown) {
-            printf("[     ] LoadTest::Tester::run_tests(): premature_shutdown after Wake up\n");
+            //printf("[     ] LoadTest::Tester::run_tests(): premature_shutdown after Wake up\n");
             break;
         }
     }

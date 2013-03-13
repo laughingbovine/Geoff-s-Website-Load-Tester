@@ -105,7 +105,7 @@ CharBuffer::CharBuffer () :
     set_size(CHARBUFFER_DEFAULT_SIZE);
 }
 
-CharBuffer::CharBuffer (int starting_size) :
+CharBuffer::CharBuffer (unsigned int starting_size) :
     chars(NULL)
 {
     set_size(starting_size);
@@ -122,7 +122,7 @@ CharBuffer::CharBuffer (char const* starting_string) :
 CharBuffer::CharBuffer (istream &input) :
     chars(NULL)
 {
-    int num_bytes = 0;
+    unsigned int num_bytes = 0;
 
     set_size(CHARBUFFER_DEFAULT_SIZE);
 
@@ -167,27 +167,26 @@ char* CharBuffer::let_go ()
     return chars2;
 }
 
-void CharBuffer::set_size (int new_size)
+void CharBuffer::set_size (unsigned int new_size)
 {
-    if (new_size <= 0)
-    {
+    if (new_size <= 0) {
         size = 0;
 
-        if (chars != NULL)
-        {
-            free(chars);
+        if (chars != NULL) {
+            delete [] chars; //free(chars);
             chars = NULL;
         }
-    }
-    else // new_size > 0
-    {
-        size = new_size;
+    } else { // new_size > 0
+        if (chars != NULL) {
+            char* new_chars = new char[new_size];
+            memcpy(new_chars, chars, (size > new_size ? new_size : size) * sizeof(char));
+            delete [] chars;
+            chars = new_chars;
+        } else {
+            chars = new char[new_size];
+        }
 
-        // yes, i know sizeof(char) == 1
-        if (chars == NULL)
-            chars = (char*)malloc(size * sizeof(char));
-        else
-            chars = (char*)realloc(chars, size * sizeof(char));
+        size = new_size;
     }
 }
 

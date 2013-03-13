@@ -35,17 +35,17 @@ class Stopwatch
 struct CharBuffer
 {
     char* chars;
-    int size;
+    unsigned int size;
 
     CharBuffer ();
-    CharBuffer (int);
+    CharBuffer (unsigned int);
     CharBuffer (char const*);
     CharBuffer (istream &input);
     CharBuffer (const CharBuffer&);
     ~CharBuffer ();
 
     char* let_go ();
-    void set_size (int);
+    void set_size (unsigned int);
 
     friend ostream& operator<< (ostream& output, CharBuffer &b);
 };

@@ -20,7 +20,7 @@
 #define TCP_MAX_CONSECUTIVE_TIMEOUTS -1
 #define TCP_MAX_READ_BYTES 1024*1024*5
 
-#define TCP_TCPRUNSTATUS_SIZE 26
+#define TCP_TCPRUNSTATUS_SIZE 27
 
 enum TcpRunStatus {
     NOOP,               // 0
@@ -39,16 +39,17 @@ enum TcpRunStatus {
     WRITE_OK,           // 13
     SELECT_FAIL,        // 14
     SELECT_TIMEOUT,     // 15
-    SELECT_OK,          // 16
-    RECV_FAIL,          // 17
-    RECV_DONE,          // 18
-    RECV_OK,            // 19
-    RECV_TIMEOUT,       // 20
-    RECV_RESET,         // 21
-    SHUTDOWN_FAIL,      // 22
-    SHUTDOWN_OK,        // 23
-    CLOSE_FAIL,         // 24
-    CLOSE_OK            // 25
+    SELECT_OOB,         // 16
+    SELECT_OK,          // 17
+    RECV_FAIL,          // 18
+    RECV_DONE,          // 19
+    RECV_OK,            // 20
+    RECV_TIMEOUT,       // 21
+    RECV_RESET,         // 22
+    SHUTDOWN_FAIL,      // 23
+    SHUTDOWN_OK,        // 24
+    CLOSE_FAIL,         // 25
+    CLOSE_OK            // 26
 };
 
 extern const char* TcpRunStatusStrings [TCP_TCPRUNSTATUS_SIZE];
@@ -81,7 +82,8 @@ class TcpRun
     // socket/net stuff
     int socket_id;
     //struct hostent* host;
-    fd_set socket_set;
+    fd_set socket_set_read;
+    fd_set socket_set_except;
 
     // counters
     unsigned int connect_attempts;
@@ -151,7 +153,7 @@ class TcpRun
     TcpRunStatus do_connect ();
     TcpRunStatus do_write ();
     TcpRunStatus do_select ();
-    TcpRunStatus do_recv ();
+    TcpRunStatus do_recv (bool);
     TcpRunStatus do_shutdown ();
     TcpRunStatus do_close ();
 
