@@ -14,6 +14,7 @@ src/stringhashtable.*
 requests.build/
 requests.pcap/
 h264_run.sh
+pulitzer_run.sh
 wordpress_new_run.sh
 requests/localhost_*
 requests/pulitzer_*
