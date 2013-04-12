@@ -157,7 +157,7 @@ TcpRunStatus TcpRun::do_connect ()
     // open connection
     if (connect(socket_id, (struct sockaddr*)target, sizeof(sockaddr_in)) == 0)
         return CONNECT_OK;
-    else if (errno == 60)
+    else if (errno == ETIMEDOUT)
         return CONNECT_TIMEOUT;
     else
         return CONNECT_FAIL;
@@ -247,9 +247,9 @@ TcpRunStatus TcpRun::do_recv (bool oob)
         return RECV_OK;
     else if (retval == 0)
         return RECV_DONE;
-    else if (errno == 35 || errno == 60)
+    else if (errno == EAGAIN || errno == ETIMEDOUT)
         return RECV_TIMEOUT;
-    else if (errno == 54)
+    else if (errno == ECONNRESET)
         return RECV_RESET;
     else
         return RECV_FAIL;
@@ -260,7 +260,7 @@ TcpRunStatus TcpRun::do_shutdown ()
     if (shutdown(socket_id, SHUT_RDWR) == 0) {
         return SHUTDOWN_OK;
     } else {
-        if (errno == 57) {
+        if (errno == ENOTCONN) {
             // socket already shut down (remotely?)
             return SHUTDOWN_OK;
         } else {
