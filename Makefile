@@ -7,7 +7,7 @@
 #compiler = g++ -g -O0
 compiler = g++
 
-all: dirs loadtest tests
+all: loadtest tests
 
 ################################################################################
 
@@ -16,7 +16,7 @@ loadtest: obj/utils.o obj/tcp.o obj/test.o obj/tester.o obj/loadtest.o
 
 ################################################################################
 
-tests: dirs utils.test tcp.test test.test tester.test
+tests: utils.test tcp.test test.test tester.test
 
 utils.test: obj/utils.o obj/test/utils.o
 	$(compiler) -o $@ $^
@@ -45,16 +45,10 @@ cleanx:
 ################################################################################
 
 obj/%.o: src/%.cpp src/%.h
+	@mkdir -p $(@D)
 	$(compiler) -c $< -o $@
 
 # and for .cpp's without a corresponding .h:
 obj/%.o: src/%.cpp
+	@mkdir -p $(@D)
 	$(compiler) -c $< -o $@
-
-dirs: obj/ obj/test/
-
-obj/:
-	mkdir obj
-
-obj/test/: obj/
-	mkdir obj/test
