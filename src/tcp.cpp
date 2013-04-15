@@ -1,3 +1,5 @@
+#include <stdio.h>
+
 #include "tcp.h"
 
 const char* TcpRunStatusStrings [TCP_TCPRUNSTATUS_SIZE] = {

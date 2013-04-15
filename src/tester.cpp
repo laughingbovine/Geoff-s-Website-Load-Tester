@@ -1,3 +1,6 @@
+#include <stdio.h>
+#include <stdlib.h>
+
 #include "tester.h"
 
 void start_premature_shutdown (int sig)

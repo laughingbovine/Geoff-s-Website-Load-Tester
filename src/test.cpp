@@ -1,3 +1,5 @@
+#include <stdio.h>
+
 #include "test.h"
 
 const char* TestStatusStrings [TEST_TESTSTATUS_SIZE] = {
